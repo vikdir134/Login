@@ -1,0 +1,87 @@
+/* ===== Variables (claro por defecto) ===== */
+:root {
+  --bg: #ffffff;
+  --text: #111827;
+  --card: #e5e7eb;
+  --input-bg: #ffffff;
+  --input-b: #d1d5db;
+  --btn-bg: #0f62fe;
+  --btn-text: #ffffff;
+  --muted: #6b7280;
+}
+
+/* ===== Modo oscuro ===== */
+.dark {
+  --bg: #0f1115;
+  --text: #e5e7eb;
+  --card: #2a2f3a;
+  --input-bg: #161a22;
+  --input-b: #2b3240;
+  --btn-bg: #4f46e5;
+  --btn-text: #ffffff;
+  --muted: #9ca3af;
+}
+
+/* ===== Reset / base ===== */
+* { box-sizing: border-box; }
+html, body, #root { height: 100%; }
+body {
+  margin: 0;
+  background: var(--bg);
+  color: var(--text);
+  font-family: system-ui, Avenir, Helvetica, Arial, sans-serif;
+  transition: background .25s ease, color .25s ease;
+}
+
+/* ===== Helpers de página ===== */
+.page { min-height: 100%; display: flex; flex-direction: column; }
+.page-center { min-height: 100%; display: flex; align-items: center; justify-content: center; padding: 24px; }
+
+/* ===== Tarjeta / formulario ===== */
+.card {
+  width: 100%;
+  max-width: 380px;
+  border: 1px solid var(--card);
+  border-radius: 16px;
+  padding: 24px;
+  background: transparent;
+}
+
+label { display: block; margin-bottom: 12px; font-size: 14px; }
+input {
+  width: 100%;
+  padding: 10px 12px;
+  border-radius: 10px;
+  border: 1px solid var(--input-b);
+  background: var(--input-bg);
+  color: var(--text);
+  transition: background .25s, color .25s, border-color .25s;
+}
+
+/* ===== Botones ===== */
+.btn {
+  width: 100%;
+  padding: 10px 12px;
+  border-radius: 10px;
+  border: 1px solid transparent;
+  background: var(--btn-bg);
+  color: var(--btn-text);
+  cursor: pointer;
+  font-size: 1rem;
+  font-weight: 500;
+  transition: opacity .2s;
+}
+.btn:hover { opacity: .9; }
+
+.btn-secondary {
+  padding: 8px 12px;
+  border-radius: 10px;
+  background: transparent;
+  border: 1px solid var(--card);
+  color: var(--text);
+  cursor: pointer;
+}
+
+/* Mensajes */
+.error { color: #dc2626; margin: 8px 0 12px; font-size: 14px; }
+.muted { color: var(--muted); font-size: 14px; }
