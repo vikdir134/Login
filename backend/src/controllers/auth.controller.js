@@ -1,0 +1,48 @@
+import bcrypt from 'bcryptjs';
+import jwt from 'jsonwebtoken';
+import { emailExists, findUserByEmail, createUser } from '../models/user.model.js';
+
+function signToken(payload) {
+  return jwt.sign(payload, process.env.JWT_SECRET, { expiresIn: '2h' });
+}
+
+export async function register(req, res) {
+  try {
+    const { email, password } = req.body;
+    if (!email?.trim() || !password?.trim()) {
+      return res.status(400).json({ error: 'Email y password requeridos' });
+    }
+
+    if (await emailExists(email)) {
+      return res.status(409).json({ error: 'Email ya registrado' });
+    }
+
+    const passwordHash = await bcrypt.hash(password, 10);
+    const user = await createUser({ email, passwordHash });
+    return res.status(201).json({ message: 'Usuario creado', user: { id: user.id, email: user.email } });
+  } catch (e) {
+    console.error(e);
+    return res.status(500).json({ error: 'Error del servidor' });
+  }
+}
+
+export async function login(req, res) {
+  try {
+    const { email, password } = req.body;
+    if (!email?.trim() || !password?.trim()) {
+      return res.status(400).json({ error: 'Email y password requeridos' });
+    }
+
+    const user = await findUserByEmail(email);
+    if (!user) return res.status(401).json({ error: 'Credenciales inválidas' });
+
+    const ok = await bcrypt.compare(password, user.password_hash);
+    if (!ok) return res.status(401).json({ error: 'Credenciales inválidas' });
+
+    const token = signToken({ id: user.id, email: user.email });
+    return res.json({ token });
+  } catch (e) {
+    console.error(e);
+    return res.status(500).json({ error: 'Error del servidor' });
+  }
+}
