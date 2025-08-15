@@ -1,10 +1,12 @@
 import { useState } from 'react'
 import { Outlet, useNavigate } from 'react-router-dom'
 import Sidebar from '../components/Sidebar'
+import { getUserFromToken, getDisplayName } from '../utils/auth'
 
 export default function DashboardLayout() {
   const [collapsed, setCollapsed] = useState(false)
   const navigate = useNavigate()
+  const me = getUserFromToken()
 
   const handleLogout = () => {
     localStorage.removeItem('token')
@@ -37,13 +39,13 @@ export default function DashboardLayout() {
             >
               {collapsed ? '☰' : '✕'}
             </button>
-            <strong>Panel de Inicio</strong>
+            <strong>Panel</strong>
           </div>
 
-          {/* AQUÍ: KPIs/totales (SELECTs de ejemplo)
-             SELECT SUM(total) AS total_anual FROM ventas WHERE YEAR(fecha)=YEAR(CURDATE());
-          */}
-          <span style={{ opacity: .9, fontSize: 14 }}>Total anual: {/* valor dinámico */}</span>
+          {/* quién está logueado */}
+          <div style={{ fontSize: 14, opacity: .95 }}>
+            {getDisplayName(me)} — <span style={{ fontWeight: 600 }}>{me?.role}</span>
+          </div>
         </header>
 
         <Outlet />
