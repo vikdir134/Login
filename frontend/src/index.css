@@ -85,3 +85,20 @@ input {
 /* Mensajes */
 .error { color: #dc2626; margin: 8px 0 12px; font-size: 14px; }
 .muted { color: var(--muted); font-size: 14px; }
+
+.nav-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 12px;
+  border-radius: 10px;
+  color: var(--text);
+  text-decoration: none;
+  border: 1px solid transparent;
+}
+.nav-item:hover { background: rgba(127,127,127,0.08); }
+.dark .nav-item:hover { background: rgba(255,255,255,0.06); }
+.nav-item--active {
+  border: 1px solid var(--card);
+  background: rgba(127,127,127,0.12);
+}
