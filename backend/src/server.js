@@ -1,22 +1,30 @@
+// src/server.js
 import express from 'express';
 import cors from 'cors';
 import 'dotenv/config';
 
 import authRouter from './routes/auth.routes.js';
+import adminRouter from './routes/admin.routes.js';
 import { authRequired } from './middleware/auth.js';
 
 const app = express();
-app.use(cors({ origin: 'http://localhost:5173' }));
+
+const allowed = process.env.FRONTEND_ORIGIN || 'http://localhost:5173';
+app.use(cors({ origin: allowed }));
+
 app.use(express.json());
 
 app.get('/', (_req, res) => res.send('API OK'));
 
-// Rutas MVC
+// Auth
 app.use('/api/auth', authRouter);
 
-// Ejemplo de ruta protegida
+// Admin-only
+app.use('/api/admin', adminRouter);
+
+// Ejemplo protegido (cualquiera logueado)
 app.get('/api/secure/hello', authRequired, (req, res) => {
-  res.json({ message: `Hola ${req.user.email}` });
+  res.json({ message: `Hola ${req.user.email} (${req.user.role})` });
 });
 
 const PORT = process.env.PORT || 4000;
