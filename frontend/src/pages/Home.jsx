@@ -9,8 +9,8 @@ export default function Home() {
   const { theme, toggle } = useTheme()
 
   useEffect(() => {
-    api.get('/api/secure/hello')
-      .then(res => setMsg(res.data.message))
+    api.get('/api/secure/hello')// aca llama a la ruta de mi back donde ?? no entiendo explicame
+      .then(res => setMsg(res.data.message))// so el  middleware valida el token  envia
       .catch(() => setMsg('No autorizado'))
   }, [])
 

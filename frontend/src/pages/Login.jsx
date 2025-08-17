@@ -14,7 +14,7 @@ export default function Login() {
     e.preventDefault()
     setError('')
     try {
-      const { data } = await api.post('/api/auth/login', { email, password })
+      const { data } = await api.post('/api/auth/login', { email, password })// llama a api de axios para verificar y mandar un post a mi back
       localStorage.setItem('token', data.token)
       navigate('/')
     } catch (err) {

@@ -72,13 +72,12 @@ export async function login(req, res) {
     if (!ok) return res.status(401).json({ error: 'La contraseña es incorrecta' });
 
     const token = signToken({
-      id: user.id,
-      email: user.email,
-      role: user.role || 'ALMACENERO', // por si hay nulos antiguos
-      name: `${user.first_name ?? ''} ${user.last_name ?? ''}`.trim(),
-    });
-
-    return res.json({ token });
+    id: user.id,
+    email: user.email,
+    role: user.role, // <— usa el alias "role" del SELECT
+    name: `${user.first_name ?? ''} ${user.last_name ?? ''}`.trim(),
+  });
+return res.json({ token });
   } catch (e) {
     console.error(e);
     return res.status(500).json({ error: 'Error interno del servidor. Intente más tarde.' });

@@ -1,23 +1,33 @@
 import { NavLink } from 'react-router-dom'
 import { useTheme } from '../theme/ThemeProvider'
-import { getUserFromToken, getInitials, hasRole, getDisplayName } from '../utils/auth'
+import { getUserFromToken, getInitials, getDisplayName } from '../utils/auth'
 
-/* ... tu array nav se queda igual ... */
+// Definimos todos los ítems y qué roles los pueden ver
+const NAV_ITEMS = [
+  { to: '/app', label: 'Dashboard', icon: '🏠', end: true, roles: ['JEFE','ADMINISTRADOR'] },
+  { to: '/app/clientes', label: 'Clientes', icon: '👥', roles: ['JEFE','ADMINISTRADOR'] },
+  { to: '/app/pedidos', label: 'Pedidos', icon: '🧾', roles: ['PRODUCCION','JEFE','ADMINISTRADOR'] },
+  { to: '/app/almacen', label: 'Almacén', icon: '📦', roles: ['ALMACENERO','PRODUCCION','JEFE','ADMINISTRADOR'] },
+  { to: '/app/producto-terminado', label: 'Producto Terminado', icon: '🧱', roles: ['ALMACENERO','PRODUCCION','JEFE','ADMINISTRADOR'] },
+  { to: '/app/entregas', label: 'Entregas', icon: '🚚', roles: ['ALMACENERO','PRODUCCION','JEFE','ADMINISTRADOR'] },
+  { to: '/app/pagos', label: 'Pagos', icon: '💳', roles: ['JEFE','ADMINISTRADOR'] },
+  { to: '/app/registro-usuarios', label: 'Registro de usuarios', icon: '👤➕', roles: ['ADMINISTRADOR'] },
+]
 
 export default function Sidebar({ collapsed = false, onLogout }) {
   const { theme, toggle } = useTheme()
   const user = getUserFromToken()
-
+  const role = user?.role
   const w = collapsed ? 76 : 260
   const hide = collapsed ? { display: 'none' } : {}
+
+  const visibleItems = NAV_ITEMS.filter(i => !role || i.roles.includes(role))
 
   return (
     <aside style={{ width: w, minHeight: '100vh', borderRight: '1px solid var(--card)', padding: 16, display: 'flex', flexDirection: 'column', gap: 16, transition: 'width .2s ease' }}>
       {/* Marca */}
       <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-        <div style={{ width: 36, height: 36, borderRadius: 8, background: 'var(--card)', display: 'grid', placeItems: 'center', fontWeight: 700 }}>
-          L
-        </div>
+        <div style={{ width: 36, height: 36, borderRadius: 8, background: 'var(--card)', display: 'grid', placeItems: 'center', fontWeight: 700 }}>L</div>
         <strong style={hide}>Mi ERP</strong>
       </div>
 
@@ -27,42 +37,26 @@ export default function Sidebar({ collapsed = false, onLogout }) {
           {getInitials(getDisplayName(user))}
         </div>
         <div style={{ display: 'grid', ...hide }}>
-          <strong style={{ fontSize: 14, lineHeight: 1.1 }}>{getDisplayName(user)}</strong>
-          <span className="muted" style={{ fontSize: 12, marginTop: 2 }}>
-            {/* Etiqueta de rol */}
-            <span style={{
-              padding: '2px 8px',
-              border: '1px solid var(--card)',
-              borderRadius: 999,
-              fontSize: 11
-            }}>
-              {user?.role || '—'}
-            </span>
+          <strong style={{ fontSize: 14 }}>{getDisplayName(user)}</strong>
+          <span className="muted" style={{ fontSize: 11, marginTop: 2, border: '1px solid var(--card)', borderRadius: 999, padding: '2px 8px' }}>
+            {role || '—'}
           </span>
         </div>
       </div>
 
-      {/* Navegación (con filtro admin para Registro de usuarios) */}
+      {/* Navegación visible según rol */}
       <nav style={{ display: 'grid', gap: 6 }}>
-        {[
-          { to: '/app', label: 'Dashboard', icon: '🏠', end: true },
-          { to: '/app/clientes', label: 'Clientes', icon: '👥' },
-          { to: '/app/pedidos', label: 'Pedidos', icon: '🧾' },
-          { to: '/app/almacen', label: 'Almacén', icon: '📦' },
-          { to: '/app/producto-terminado', label: 'Producto Terminado', icon: '🧱' },
-          { to: '/app/entregas', label: 'Entregas', icon: '🚚' },
-          { to: '/app/pagos', label: 'Pagos', icon: '💳' },
-          { to: '/app/registro-usuarios', label: 'Registro de usuarios', icon: '👤➕', adminOnly: true },
-        ]
-          .filter(item => !item.adminOnly || hasRole(user, 'ADMINISTRADOR'))
-          .map(item => (
-            <NavLink key={item.to} to={item.to} end={item.end}
-              className={({ isActive }) => 'nav-item' + (isActive ? ' nav-item--active' : '')}
-              title={item.label}
-            >
-              <span style={{ marginRight: collapsed ? 0 : 8 }}>{item.icon}</span>
-              {!collapsed && item.label}
-            </NavLink>
+        {visibleItems.map(item => (
+          <NavLink
+            key={item.to}
+            to={item.to}
+            end={item.end}
+            className={({ isActive }) => 'nav-item' + (isActive ? ' nav-item--active' : '')}
+            title={item.label}
+          >
+            <span style={{ marginRight: collapsed ? 0 : 8 }}>{item.icon}</span>
+            {!collapsed && item.label}
+          </NavLink>
         ))}
       </nav>
 

@@ -1,4 +1,4 @@
-// src/server.js
+// backend/src/server.js
 import express from 'express';
 import cors from 'cors';
 import 'dotenv/config';
@@ -6,28 +6,32 @@ import 'dotenv/config';
 import authRouter from './routes/auth.routes.js';
 import adminRouter from './routes/admin.routes.js';
 import { authRequired } from './middleware/auth.js';
+import { testConnection } from './db.js';
 
 const app = express();
-
-const allowed = process.env.FRONTEND_ORIGIN || 'http://localhost:5173';
-app.use(cors({ origin: allowed }));
-
+app.use(cors({ origin: 'http://localhost:5173' }));
 app.use(express.json());
 
 app.get('/', (_req, res) => res.send('API OK'));
 
-// Auth
+// Rutas
 app.use('/api/auth', authRouter);
-
-// Admin-only
 app.use('/api/admin', adminRouter);
 
-// Ejemplo protegido (cualquiera logueado)
+// Ejemplo protegido
 app.get('/api/secure/hello', authRequired, (req, res) => {
-  res.json({ message: `Hola ${req.user.email} (${req.user.role})` });
+  res.json({ message: `Hola ${req.user.email}` });
 });
 
 const PORT = process.env.PORT || 4000;
-app.listen(PORT, () => {
+app.listen(PORT, async () => {
+  try {
+    const ok = await testConnection();
+    console.log(ok
+      ? `DB conectada → ${process.env.DB_NAME}`
+      : 'No se pudo verificar la conexión DB');
+  } catch (e) {
+    console.error('Error conectando a la DB:', e?.code || e?.message);
+  }
   console.log(`Backend escuchando en http://localhost:${PORT}`);
 });
