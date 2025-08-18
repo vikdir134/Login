@@ -11,6 +11,7 @@ const NAV_ITEMS = [
   { to: '/app/producto-terminado', label: 'Producto Terminado', icon: '🧱', roles: ['ALMACENERO','PRODUCCION','JEFE','ADMINISTRADOR'] },
   { to: '/app/entregas', label: 'Entregas', icon: '🚚', roles: ['ALMACENERO','PRODUCCION','JEFE','ADMINISTRADOR'] },
   { to: '/app/pagos', label: 'Pagos', icon: '💳', roles: ['JEFE','ADMINISTRADOR'] },
+  { to: '/app/compras', label: 'Compras', icon: '🧾', roles: ['ALMACENERO','JEFE','ADMINISTRADOR'] },  // Sidebar.jsx → NAV_ITEMS
   { to: '/app/registro-usuarios', label: 'Registro de usuarios', icon: '👤➕', roles: ['ADMINISTRADOR'] },
 ]
 

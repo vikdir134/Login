@@ -12,7 +12,9 @@ import ProductoTerminado from './pages/ProductoTerminado'
 import Entregas from './pages/Entregas'
 import Pagos from './pages/Pagos'
 import RegistroUsuarios from './pages/RegistroUsuarios'
+import Compras from './pages/Compras'
 import DefaultByRole from './components/DefaultByRole' // nuevo (abajo)
+
 
 export default function App() {
   return (
@@ -44,6 +46,10 @@ export default function App() {
         {/* PRODUCCION puede ver Pedidos (además de los de almacén) */}
         <Route path="pedidos" element={
           <RequireRole roles={['PRODUCCION','JEFE','ADMINISTRADOR']}><Pedidos /></RequireRole>
+        } />
+
+        <Route path="compras" element={
+          <RequireRole roles={['ALMACENERO','JEFE','ADMINISTRADOR']}><Compras /></RequireRole>
         } />
 
         {/* Almacén / Producto Terminado / Entregas (muchos roles) */}

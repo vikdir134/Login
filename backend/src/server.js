@@ -5,8 +5,14 @@ import 'dotenv/config';
 
 import authRouter from './routes/auth.routes.js';
 import adminRouter from './routes/admin.routes.js';
+import customersRouter from './routes/customers.routes.js';
+import suppliersRouter from './routes/suppliers.routes.js'
+import purchasesRouter from './routes/purchases.routes.js'
 import { authRequired } from './middleware/auth.js';
 import { testConnection } from './db.js';
+import ordersRouter from './routes/orders.routes.js'
+import paymentsRouter from './routes/payments.routes.js'
+import deliveriesRouter from './routes/deliveries.routes.js'
 
 const app = express();
 app.use(cors({ origin: 'http://localhost:5173' }));
@@ -17,6 +23,13 @@ app.get('/', (_req, res) => res.send('API OK'));
 // Rutas
 app.use('/api/auth', authRouter);
 app.use('/api/admin', adminRouter);
+app.use('/api/customers', customersRouter);
+app.use('/api/suppliers', suppliersRouter);
+app.use('/api/purchases', purchasesRouter);
+app.use('/api', ordersRouter);
+app.use('/api', paymentsRouter)
+app.use('/api', deliveriesRouter)
+
 
 // Ejemplo protegido
 app.get('/api/secure/hello', authRequired, (req, res) => {
