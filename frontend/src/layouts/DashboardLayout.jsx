@@ -1,52 +1,44 @@
 import { useState } from 'react'
 import { Outlet, useNavigate } from 'react-router-dom'
 import Sidebar from '../components/Sidebar'
-import { getUserFromToken, getDisplayName } from '../utils/auth'
 
 export default function DashboardLayout() {
   const [collapsed, setCollapsed] = useState(false)
   const navigate = useNavigate()
-  const me = getUserFromToken()
 
   const handleLogout = () => {
-    localStorage.removeItem('token')
-    navigate('/login')
+    try {
+      localStorage.removeItem('token')
+    } finally {
+      navigate('/login', { replace: true })
+    }
   }
 
   return (
-    <div style={{ display: 'flex', minHeight: '100vh' }}>
-      <Sidebar collapsed={collapsed} onLogout={handleLogout} />
+    <div className={`app-shell ${collapsed ? 'is-collapsed' : ''}`}>
+      {/* Sidebar (wrapper con clase .sidebar, sin scroll interno) */}
+      <aside className="sidebar">
+        <Sidebar collapsed={collapsed} onLogout={handleLogout} />
+      </aside>
 
-      <main style={{ flex: 1, padding: 16 }}>
-        <header style={{
-          display: 'flex', alignItems: 'center', justifyContent: 'space-between',
-          padding: 12, borderRadius: 12, marginBottom: 16,
-          background: 'linear-gradient(90deg, #7c3aed, #9333ea)', color: 'white'
-        }}>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-            <button
-              type="button"
-              onClick={() => setCollapsed(v => !v)}
-              style={{
-                background: 'rgba(255,255,255,.15)',
-                border: '1px solid rgba(255,255,255,.25)',
-                color: 'white',
-                padding: '6px 10px',
-                borderRadius: 8,
-                cursor: 'pointer'
-              }}
-              title={collapsed ? 'Mostrar barra' : 'Ocultar barra'}
-            >
-              {collapsed ? '☰' : '✕'}
-            </button>
-            <strong>Panel</strong>
-          </div>
+      {/* Contenido */}
+      <main className="content">
+        <div className="topbar">
+          <button
+            type="button"
+            className="icon-btn"
+            title={collapsed ? 'Expandir' : 'Colapsar'}
+            onClick={() => setCollapsed(c => !c)}
+          >
+            {/* hamburguesa simple */}
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+              <path d="M3 6h18M3 12h18M3 18h18"/>
+            </svg>
+          </button>
 
-          {/* quién está logueado */}
-          <div style={{ fontSize: 14, opacity: .95 }}>
-            {getDisplayName(me)} — <span style={{ fontWeight: 600 }}>{me?.role}</span>
-          </div>
-        </header>
+          <div style={{ opacity: .7 }} className="hide-when-collapsed">Panel</div>
+          <div style={{ flex: 1 }} />
+        </div>
 
         <Outlet />
       </main>

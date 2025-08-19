@@ -1,19 +1,24 @@
 import { Router } from 'express'
 import { authRequired } from '../middleware/auth.js'
 import { requireRole } from '../middleware/roles.js'
-import {
-  listCustomers, getCustomer, createCustomer, updateCustomer, deleteCustomer
-} from '../controllers/customers.controller.js'
+import { listCustomers, createCustomer, getCustomerSummary } from '../controllers/customers.controller.js'
 
 const router = Router()
+router.use(authRequired)
 
-// Solo JEFE y ADMINISTRADOR pueden acceder a cualquier endpoint de clientes
-router.use(authRequired, requireRole('JEFE', 'ADMINISTRADOR'))
+router.get('/customers',
+  requireRole('JEFE','ADMINISTRADOR','PRODUCCION','ALMACENERO'),
+  listCustomers
+)
 
-router.get('/', listCustomers)        // GET /api/customers?q=&activo=
-router.get('/:id', getCustomer)       // GET /api/customers/:id
-router.post('/', createCustomer)      // POST /api/customers
-router.put('/:id', updateCustomer)    // PUT /api/customers/:id
-router.delete('/:id', deleteCustomer) // DELETE /api/customers/:id
+router.post('/customers',
+  requireRole('JEFE','ADMINISTRADOR'),
+  createCustomer
+)
+
+router.get('/customers/:id',
+  requireRole('JEFE','ADMINISTRADOR','PRODUCCION'),
+  getCustomerSummary
+)
 
 export default router

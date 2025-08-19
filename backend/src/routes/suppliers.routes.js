@@ -1,18 +1,19 @@
 import { Router } from 'express'
+import { listSuppliers, createSupplier } from '../controllers/suppliers.controller.js'
 import { authRequired } from '../middleware/auth.js'
 import { requireRole } from '../middleware/roles.js'
-import {
-  listSuppliers, getSupplier, createSupplier, updateSupplier, deleteSupplier
-} from '../controllers/suppliers.controller.js'
 
 const router = Router()
+router.use(authRequired)
 
-router.use(authRequired, requireRole('ALMACENERO','JEFE','ADMINISTRADOR'))
+router.get('/suppliers',
+  requireRole('ADMINISTRADOR','JEFE','PRODUCCION'),
+  listSuppliers
+)
 
-router.get('/', listSuppliers)
-router.get('/:id', getSupplier)
-router.post('/', createSupplier)
-router.put('/:id', updateSupplier)
-router.delete('/:id', deleteSupplier)
+router.post('/suppliers',
+  requireRole('ADMINISTRADOR','JEFE'),
+  createSupplier
+)
 
 export default router

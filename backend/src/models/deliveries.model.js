@@ -1,10 +1,9 @@
-// src/models/deliveries.model.js
 import { pool } from '../db.js'
 import { markOrderDeliveredIfComplete } from './orders.model.js'
 
-// Helpers que aceptan una conexión (conn) para leer dentro de la misma TX
-async function findOrderHeaderById(conn, orderId) {
-  const [rows] = await conn.query(
+// Aux
+async function findOrderHeaderById(orderId) {
+  const [rows] = await pool.query(
     `SELECT o.ID_ORDER AS id, o.ID_CUSTOMER AS customerId, o.FECHA AS createdAt
      FROM ORDERS o WHERE o.ID_ORDER = ?`,
     [orderId]
@@ -12,10 +11,13 @@ async function findOrderHeaderById(conn, orderId) {
   return rows[0] || null
 }
 
-async function findOrderLine(conn, lineId) {
-  const [rows] = await conn.query(
-    `SELECT d.ID_DESCRIPTION_ORDER AS id, d.ID_ORDER AS orderId, d.ID_PRODUCT AS productId,
-            d.PESO AS pesoPedido, d.PRESENTACION AS presentacion
+async function findOrderLine(lineId) {
+  const [rows] = await pool.query(
+    `SELECT d.ID_DESCRIPTION_ORDER AS id,
+            d.ID_ORDER AS orderId,
+            d.ID_PRODUCT AS productId,
+            d.PESO AS pesoPedido,
+            d.PRESENTACION AS presentacion
      FROM DESCRIPTION_ORDER d
      WHERE d.ID_DESCRIPTION_ORDER = ?`,
     [lineId]
@@ -23,9 +25,19 @@ async function findOrderLine(conn, lineId) {
   return rows[0] || null
 }
 
+async function getDeliveredForLine(connOrPool, lineId) {
+  const [sum] = await connOrPool.query(
+    `SELECT IFNULL(SUM(PESO),0) AS entregado
+     FROM DESCRIPTION_DELIVERY
+     WHERE ID_DESCRIPTION_ORDER = ?`,
+    [lineId]
+  )
+  return Number(sum[0]?.entregado || 0)
+}
+
 // Precio vigente por cliente+producto en una fecha (VALID_FROM <= fecha < VALID_TO o VALID_TO IS NULL)
-async function getEffectivePrice(conn, { customerId, productId, atDate }) {
-  const [rows] = await conn.query(
+async function getEffectivePrice({ customerId, productId, atDate }) {
+  const [rows] = await pool.query(
     `SELECT PRICE, CURRENCY
      FROM CUSTOMER_PRODUCT_PRICES
      WHERE ID_CUSTOMER = ?
@@ -40,57 +52,68 @@ async function getEffectivePrice(conn, { customerId, productId, atDate }) {
 }
 
 export class DeliveriesModel {
-  // Retorna header + lines creadas
-  static async create({ orderId, facturaId = null, fecha, createdBy = null, lines }) {
+  // Crea cabecera + líneas. Si fecha es null/undefined, se usa NOW() (servidor)
+  static async create({ orderId, facturaId = null, fecha = null, createdBy = null, lines }) {
     const conn = await pool.getConnection()
     try {
       await conn.beginTransaction()
 
-      // Validación básica de pedido (dentro de la misma TX)
-      const head = await findOrderHeaderById(conn, orderId)
-      if (!head) {
-        const err = new Error('Pedido no existe')
-        err.code = 'ORDER_NOT_FOUND'
-        throw err
-      }
+      // 1) Validar pedido
+      const head = await findOrderHeaderById(orderId)
+      if (!head) throw Object.assign(new Error('Pedido no existe'), { code: 'ORDER_NOT_FOUND' })
 
-      // Crear cabecera de entrega
+      // 2) Cabecera (COALESCE para usar NOW() si no envías fecha)
       const [resHead] = await conn.query(
         `INSERT INTO ORDER_DELIVERY (ID_ORDER, ID_FACTURA, FECHA, CREATED_BY)
-         VALUES (?, ?, ?, ?)`,
+         VALUES (?, ?, COALESCE(?, NOW()), ?)`,
         [orderId, facturaId, fecha, createdBy]
       )
       const deliveryId = resHead.insertId
 
       const createdLines = []
       for (const l of lines) {
-        // Validar línea de pedido (debe pertenecer al mismo orderId)
-        const ol = await findOrderLine(conn, l.descriptionOrderId)
+        // 3) Validar línea de pedido
+        const ol = await findOrderLine(l.descriptionOrderId)
         if (!ol || ol.orderId !== orderId) {
-          const err = new Error('Línea de pedido inválida')
-          err.code = 'ORDER_LINE_INVALID'
-          throw err
+          throw Object.assign(new Error('Línea de pedido inválida'), { code: 'ORDER_LINE_INVALID' })
         }
 
-        // Determinar UNIT_PRICE
+        // 4) Verificar pendiente
+        const entregado = await getDeliveredForLine(conn, l.descriptionOrderId)
+        const pedido = Number(ol.pesoPedido || 0)
+        const restante = Math.max(0, pedido - entregado)
+
+        if (restante <= 0) {
+          throw Object.assign(new Error('La línea ya está completamente entregada'), {
+            code: 'ALREADY_FULFILLED'
+          })
+        }
+        if (Number(l.peso) > restante + 1e-9) {
+          throw Object.assign(new Error(`Excede lo pendiente. Restante: ${restante} kg`), {
+            code: 'OVER_DELIVERY',
+            remaining: restante
+          })
+        }
+
+        // 5) Determinar precio
         let unitPrice = l.unitPrice
         let currency = 'PEN'
         if (unitPrice === undefined || unitPrice === null) {
-          const eff = await getEffectivePrice(conn, {
+          const atDate = (fecha ?? new Date()).toISOString().slice(0,10)  // YYYY-MM-DD
+          const eff = await getEffectivePrice({
             customerId: head.customerId,
             productId: ol.productId,
-            atDate: (fecha?.split?.(' ')?.[0]) || fecha // por si viene 'YYYY-MM-DD hh:mm:ss'
+            atDate
           })
           if (!eff) {
-            const err = new Error('No hay precio vigente para el producto de esta línea en la fecha de entrega')
-            err.code = 'NO_EFFECTIVE_PRICE'
-            throw err
+            throw Object.assign(new Error('No hay precio vigente para el producto de esta línea en la fecha de entrega'),
+              { code: 'NO_EFFECTIVE_PRICE' })
           }
           unitPrice = Number(eff.PRICE)
           currency = eff.CURRENCY || 'PEN'
         }
 
-        // Insertar línea
+        // 6) Insertar línea
         await conn.query(
           `INSERT INTO DESCRIPTION_DELIVERY
             (ID_ORDER_DELIVERY, ID_DESCRIPTION_ORDER, PESO, DESCRIPCION, UNIT_PRICE, CURRENCY)
@@ -103,27 +126,23 @@ export class DeliveriesModel {
           peso: Number(l.peso),
           unitPrice: Number(unitPrice),
           currency
-          // SUBTOTAL se calcula por columna generada en la BD
         })
       }
 
       await conn.commit()
 
-      // Intentar actualizar estado del pedido si ya se completó
-      await markOrderDeliveredIfComplete(orderId)
-
-      // Resumen simple (fuera de la TX vale usar pool)
+      // Resumen
       const [sumRows] = await pool.query(
         `SELECT COUNT(*) AS lineCount, IFNULL(SUM(SUBTOTAL),0) AS monto
-         FROM DESCRIPTION_DELIVERY WHERE ID_ORDER_DELIVERY = ?`,
-        [deliveryId]
+         FROM DESCRIPTION_DELIVERY WHERE ID_ORDER_DELIVERY = ?`, [deliveryId]
       )
 
       return {
         id: deliveryId,
         orderId,
         facturaId,
-        fecha,
+        // si enviaste fecha la devolvemos, si no la leerías luego en un GET (aquí no recargo)
+        fecha: fecha ?? null,
         lineCount: Number(sumRows[0].lineCount),
         totalEntregado: Number(sumRows[0].monto),
         lines: createdLines

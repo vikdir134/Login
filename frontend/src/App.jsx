@@ -14,6 +14,8 @@ import Pagos from './pages/Pagos'
 import RegistroUsuarios from './pages/RegistroUsuarios'
 import Compras from './pages/Compras'
 import DefaultByRole from './components/DefaultByRole' // nuevo (abajo)
+import ClienteDetalle from './pages/ClienteDetalle'
+import PedidoDetalle from './pages/PedidoDetalle'
 
 
 export default function App() {
@@ -34,7 +36,13 @@ export default function App() {
 
         {/* JEFE y ADMIN ven Dashboard, Clientes, Pagos */}
         <Route path="clientes" element={
-          <RequireRole roles={['JEFE','ADMINISTRADOR']}><Clientes /></RequireRole>
+          <RequireRole roles={['JEFE','ADMINISTRADOR','PRODUCCION','ALMACENERO']}><Clientes /></RequireRole>
+        } />
+        <Route path="clientes/:id" element={
+          <RequireRole roles={['JEFE','ADMINISTRADOR','PRODUCCION']}><ClienteDetalle /></RequireRole>
+        } />
+        <Route path="pedidos/:id" element={
+          <RequireRole roles={['JEFE','ADMINISTRADOR','PRODUCCION','ALMACENERO']}><PedidoDetalle /></RequireRole>
         } />
         <Route path="pagos" element={
           <RequireRole roles={['JEFE','ADMINISTRADOR']}><Pagos /></RequireRole>

@@ -2,60 +2,48 @@ import { z } from 'zod'
 import { PurchasesModel } from '../models/purchases.model.js'
 
 const itemSchema = z.object({
-  primaterId: z.number().int().positive(),
-  quantity: z.number().positive(),
-  unitPrice: z.number().nonnegative(),
-  totalPrice: z.number().nonnegative().optional(),
-  notes: z.string().max(255).optional().nullable()
+  primaryMaterialId: z.coerce.number().int().positive(),
+  quantity: z.coerce.number().positive(),
+  unitPrice: z.coerce.number().positive(),
+  notes: z.string().max(200).optional().nullable()
 })
 
-const headerSchema = z.object({
-  supplierId: z.number().int().positive(),
+const createSchema = z.object({
+  supplierId: z.coerce.number().int().positive(),
   documentType: z.enum(['FACTURA','BOLETA','GUIA','OTRO']),
   documentNumber: z.string().min(1).max(50),
-  documentDate: z.string().min(8), // 'YYYY-MM-DD'
-  totalNet: z.number().nonnegative(),
-  taxAmount: z.number().nonnegative(),
-  totalAmount: z.number().nonnegative(),
-  currency: z.string().length(3).optional(),
-  notes: z.string().max(255).optional().nullable()
+  documentDate: z.string().min(8), // YYYY-MM-DD
+  currency: z.string().length(3).default('PEN'),
+  notes: z.string().max(255).optional().nullable(),
+  items: z.array(itemSchema).nonempty()
 })
 
 export async function listPurchases(req, res) {
   try {
-    const { from, to, supplierId } = req.query
-    const data = await PurchasesModel.list({ from, to, supplierId })
-    res.json(data)
+    const supplierId = req.query.supplierId ? Number(req.query.supplierId) : null
+    const from = req.query.from || null
+    const to = req.query.to || null
+    const limit = Number(req.query.limit || 50)
+    const offset = Number(req.query.offset || 0)
+    const rows = await PurchasesModel.list({ supplierId, from, to, limit, offset })
+    res.json(rows)
   } catch (e) {
     console.error(e); res.status(500).json({ error: 'Error listando compras' })
   }
 }
 
-export async function getPurchase(req, res) {
-  try {
-    const one = await PurchasesModel.get(req.params.id)
-    if (!one) return res.status(404).json({ error: 'Compra no encontrada' })
-    res.json(one)
-  } catch (e) {
-    console.error(e); res.status(500).json({ error: 'Error obteniendo compra' })
-  }
-}
-
 export async function createPurchase(req, res) {
   try {
-    const body = req.body
-    const headerParse = headerSchema.safeParse(body.header)
-    if (!headerParse.success) return res.status(400).json({ error: headerParse.error.errors[0].message })
-
-    const itemsParse = z.array(itemSchema).nonempty().safeParse(body.items)
-    if (!itemsParse.success) return res.status(400).json({ error: itemsParse.error.errors[0].message })
-
+    const parsed = createSchema.safeParse(req.body)
+    if (!parsed.success) return res.status(400).json({ error: parsed.error.errors[0].message })
     const createdBy = req.user?.id ?? null
-    const created = await PurchasesModel.create({ header: headerParse.data, items: itemsParse.data, createdBy })
-    res.status(201).json(created)
+    const purchase = await PurchasesModel.create({ ...parsed.data, createdBy })
+    res.status(201).json(purchase)
   } catch (e) {
     console.error(e)
-    if (e?.code === 'ER_DUP_ENTRY') return res.status(409).json({ error: 'Documento duplicado para este proveedor' })
+    if (e.code === 'ER_DUP_ENTRY') {
+      return res.status(409).json({ error: 'Documento de compra ya existe (tipo + número)' })
+    }
     res.status(500).json({ error: 'Error creando compra' })
   }
 }
