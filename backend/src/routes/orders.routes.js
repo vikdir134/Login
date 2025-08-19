@@ -1,24 +1,24 @@
+// src/routes/orders.routes.js
 import { Router } from 'express'
 import { authRequired } from '../middleware/auth.js'
 import { requireRole } from '../middleware/roles.js'
-import { listOrders, getOrder, createOrder } from '../controllers/orders.controller.js'
+import {
+  createOrder,
+  getOrder,
+  listOrdersCtrl,
+  changeOrderState
+} from '../controllers/orders.controller.js'
 
 const router = Router()
-router.use(authRequired)
 
-router.get('/orders',
-  requireRole('JEFE','ADMINISTRADOR','PRODUCCION','ALMACENERO'),
-  listOrders
-)
+// Listar / ver (muchos roles)
+router.get('/', authRequired, requireRole(['ALMACENERO','PRODUCCION','JEFE','ADMINISTRADOR']), listOrdersCtrl)
+router.get('/:id', authRequired, requireRole(['ALMACENERO','PRODUCCION','JEFE','ADMINISTRADOR']), getOrder)
 
-router.get('/orders/:id',
-  requireRole('JEFE','ADMINISTRADOR','PRODUCCION','ALMACENERO'),
-  getOrder
-)
+// Crear (Producción/Jefe/Admin)
+router.post('/', authRequired, requireRole(['PRODUCCION','JEFE','ADMINISTRADOR']), createOrder)
 
-router.post('/orders',
-  requireRole('JEFE','ADMINISTRADOR','PRODUCCION'),
-  createOrder
-)
+// Cambiar estado (Jefe/Admin)
+router.patch('/:id/state', authRequired, requireRole(['JEFE','ADMINISTRADOR']), changeOrderState)
 
 export default router

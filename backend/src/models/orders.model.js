@@ -1,138 +1,175 @@
+// src/models/orders.model.js
 import { pool } from '../db.js'
 
-export class OrdersModel {
-  static async list({ customerId = null, state = null, from = null, to = null, limit = 50, offset = 0 }) {
-    const params = []
-    let where = 'WHERE 1=1'
-    if (customerId) { where += ' AND o.ID_CUSTOMER = ?'; params.push(customerId) }
-    if (state)      { where += ' AND s.DESCRIPCION = ?'; params.push(state) }
-    if (from)       { where += ' AND o.FECHA >= ?'; params.push(from) }
-    if (to)         { where += ' AND o.FECHA < DATE_ADD(?, INTERVAL 1 DAY)'; params.push(to) }
+async function getStateIdByName(name) {
+  const [rows] = await pool.query('SELECT ID_STATE AS id FROM STATES WHERE DESCRIPCION = ? LIMIT 1', [name])
+  return rows[0]?.id || null
+}
 
-    const [rows] = await pool.query(
-      `SELECT o.ID_ORDER AS id, o.ID_CUSTOMER AS customerId, c.RAZON_SOCIAL AS customerName,
-              o.FECHA AS fecha, s.DESCRIPCION AS estado
-       FROM ORDERS o
-       JOIN CUSTOMERS c ON c.ID_CUSTOMER = o.ID_CUSTOMER
-       JOIN STATES s    ON s.ID_STATE = o.ID_STATE
-       ${where}
-       ORDER BY o.FECHA DESC, o.ID_ORDER DESC
-       LIMIT ? OFFSET ?`,
-      [...params, Number(limit), Number(offset)]
+export async function createOrderWithLines({ customerId, createdBy = null, lines }) {
+  const conn = await pool.getConnection()
+  try {
+    await conn.beginTransaction()
+
+    // estado inicial: PENDIENTE
+    const stateId = await getStateIdByName('PENDIENTE')
+    if (!stateId) throw Object.assign(new Error('STATE_NOT_FOUND'), { code: 'STATE_NOT_FOUND' })
+
+    const [resOrder] = await conn.query(
+      `INSERT INTO ORDERS (ID_CUSTOMER, ID_STATE, CREATED_BY, FECHA)
+       VALUES (?, ?, ?, NOW())`,
+      [customerId, stateId, createdBy]
     )
-    return rows
-  }
+    const orderId = resOrder.insertId
 
-  static async getOne(orderId) {
-    const [[head]] = await pool.query(
-      `SELECT o.ID_ORDER AS id, o.ID_CUSTOMER AS customerId, c.RAZON_SOCIAL AS customerName,
-              o.FECHA AS fecha, s.DESCRIPCION AS estado
-       FROM ORDERS o
-       JOIN CUSTOMERS c ON c.ID_CUSTOMER = o.ID_CUSTOMER
-       JOIN STATES s    ON s.ID_STATE = o.ID_STATE
-       WHERE o.ID_ORDER = ?`,
-      [orderId]
-    )
-    if (!head) return null
-
-    const [lines] = await pool.query(
-      `SELECT d.ID_DESCRIPTION_ORDER AS id, d.ID_PRODUCT AS productId,
-              p.DESCRIPCION AS productName, d.PESO AS peso, d.PRESENTACION AS presentacion
-       FROM DESCRIPTION_ORDER d
-       JOIN PRODUCTS p ON p.ID_PRODUCT = d.ID_PRODUCT
-       WHERE d.ID_ORDER = ?
-       ORDER BY d.ID_DESCRIPTION_ORDER ASC`,
-      [orderId]
-    )
-
-    const [[sumEnt]] = await pool.query(
-      `SELECT IFNULL(SUM(dd.PESO),0) AS entregadoPeso, IFNULL(SUM(dd.SUBTOTAL),0) AS entregadoValor
-       FROM ORDER_DELIVERY od
-       JOIN DESCRIPTION_DELIVERY dd ON dd.ID_ORDER_DELIVERY = od.ID_ORDER_DELIVERY
-       WHERE od.ID_ORDER = ?`,
-      [orderId]
-    )
-
-    const [[sumPag]] = await pool.query(
-      `SELECT IFNULL(SUM(p.AMOUNT),0) AS totalPagado
-       FROM PAYMENTS p
-       WHERE p.ID_ORDER = ?`,
-      [orderId]
-    )
-
-    const pedidoPeso = lines.reduce((acc, l) => acc + Number(l.peso || 0), 0)
-    const entregadoPeso = Number(sumEnt.entregadoPeso || 0)
-    const pagado = Number(sumPag.totalPagado || 0)
-
-    return {
-      ...head,
-      lines,
-      pedidoPeso,
-      entregadoPeso,
-      avanceEntrega: pedidoPeso > 0 ? Math.min(100, Math.round((entregadoPeso / pedidoPeso) * 100)) : 0,
-      totalPagado: pagado
-    }
-  }
-
-  static async create({ customerId, fecha, stateName = 'PENDIENTE', createdBy = null, lines }) {
-    const conn = await pool.getConnection()
-    try {
-      await conn.beginTransaction()
-
-      const [[st]] = await conn.query(`SELECT ID_STATE FROM STATES WHERE DESCRIPCION=? LIMIT 1`, [stateName])
-      if (!st) {
-        const e = new Error('Estado inválido')
-        e.code = 'STATE_NOT_FOUND'
-        throw e
-      }
-
-      const [resHead] = await conn.query(
-        `INSERT INTO ORDERS (ID_CUSTOMER, ID_STATE, FECHA, CREATED_BY) VALUES (?, ?, ?, ?)`,
-        [customerId, st.ID_STATE, fecha, createdBy]
+    // insertar líneas
+    for (const l of lines) {
+      await conn.query(
+        `INSERT INTO DESCRIPTION_ORDER (ID_PRODUCT, ID_ORDER, PESO, PRESENTACION)
+         VALUES (?, ?, ?, ?)`,
+        [l.productId, orderId, l.peso, l.presentacion]
       )
-      const orderId = resHead.insertId
-
-      for (const it of lines) {
-        await conn.query(
-          `INSERT INTO DESCRIPTION_ORDER (ID_PRODUCT, ID_ORDER, PESO, PRESENTACION)
-           VALUES (?, ?, ?, ?)`,
-          [it.productId, orderId, it.peso, it.presentacion]
-        )
-      }
-
-      await conn.commit()
-      return await this.getOne(orderId)
-    } catch (e) {
-      await conn.rollback()
-      throw e
-    } finally {
-      conn.release()
     }
+
+    await conn.commit()
+    return orderId
+  } catch (e) {
+    await conn.rollback()
+    throw e
+  } finally {
+    conn.release()
   }
 }
 
-// utilidades usadas por entregas (si aún no las tenías)
-export async function getOrderWeights(orderId) {
-  const [[row]] = await pool.query(`
-    SELECT
-      IFNULL((SELECT SUM(PESO) FROM DESCRIPTION_ORDER WHERE ID_ORDER = ?), 0) AS peso_pedido,
-      IFNULL((
-        SELECT SUM(dd.PESO) FROM ORDER_DELIVERY od
-        JOIN DESCRIPTION_DELIVERY dd ON dd.ID_ORDER_DELIVERY = od.ID_ORDER_DELIVERY
-        WHERE od.ID_ORDER = ?
-      ), 0) AS peso_entregado
-  `, [orderId, orderId])
-  return { peso_pedido: Number(row.peso_pedido), peso_entregado: Number(row.peso_entregado) }
+export async function getOrderById(orderId) {
+  // cabecera
+  const [headRows] = await pool.query(
+    `SELECT o.ID_ORDER   AS id,
+            o.FECHA      AS fecha,
+            o.ID_CUSTOMER AS customerId,
+            c.RAZON_SOCIAL AS customerName,
+            s.DESCRIPCION  AS state
+     FROM ORDERS o
+     JOIN CUSTOMERS c ON c.ID_CUSTOMER = o.ID_CUSTOMER
+     JOIN STATES s    ON s.ID_STATE = o.ID_STATE
+     WHERE o.ID_ORDER = ?`,
+    [orderId]
+  )
+  if (!headRows.length) return null
+
+  // líneas
+  const [lineRows] = await pool.query(
+    `SELECT d.ID_DESCRIPTION_ORDER AS id,
+            d.ID_PRODUCT AS productId,
+            p.DESCRIPCION AS productName,
+            d.PESO AS peso,
+            d.PRESENTACION AS presentacion
+     FROM DESCRIPTION_ORDER d
+     JOIN PRODUCTS p ON p.ID_PRODUCT = d.ID_PRODUCT
+     WHERE d.ID_ORDER = ?
+     ORDER BY d.ID_DESCRIPTION_ORDER`,
+    [orderId]
+  )
+
+  // totales de pedido y entregado
+  const [sumPedido] = await pool.query(
+    `SELECT IFNULL(SUM(PESO),0) AS total FROM DESCRIPTION_ORDER WHERE ID_ORDER = ?`,
+    [orderId]
+  )
+  const [sumEntregado] = await pool.query(
+    `SELECT IFNULL(SUM(PESO),0) AS total
+       FROM DESCRIPTION_DELIVERY dd
+       JOIN ORDER_DELIVERY od ON od.ID_ORDER_DELIVERY = dd.ID_ORDER_DELIVERY
+      WHERE od.ID_ORDER = ?`,
+    [orderId]
+  )
+
+  return {
+    ...headRows[0],
+    lines: lineRows,
+    pedidoPeso: Number(sumPedido[0].total || 0),
+    entregadoPeso: Number(sumEntregado[0].total || 0),
+    avanceEntrega: (() => {
+      const p = Number(sumPedido[0].total || 0)
+      const e = Number(sumEntregado[0].total || 0)
+      return p > 0 ? Math.min(100, Math.round((e / p) * 100)) : 0
+    })()
+  }
 }
 
+export async function listOrders({ customerId, state, from, to, q, limit = 20, offset = 0 }) {
+  const params = []
+  const where = []
+
+  if (customerId) { where.push('o.ID_CUSTOMER = ?'); params.push(customerId) }
+  if (state)      { where.push('s.DESCRIPCION = ?');  params.push(state) }
+  if (from)       { where.push('o.FECHA >= ?');       params.push(from) }
+  if (to)         { where.push('o.FECHA < DATE_ADD(?, INTERVAL 1 DAY)'); params.push(to) }
+  if (q) {
+    where.push('(c.RAZON_SOCIAL LIKE ? OR c.RUC LIKE ?)')
+    params.push(`%${q}%`, `%${q}%`)
+  }
+
+  const whereSql = where.length ? 'WHERE ' + where.join(' AND ') : ''
+
+  const [rows] = await pool.query(
+    `SELECT o.ID_ORDER AS id,
+            o.FECHA     AS fecha,
+            c.RAZON_SOCIAL AS customerName,
+            s.DESCRIPCION  AS state
+       FROM ORDERS o
+       JOIN CUSTOMERS c ON c.ID_CUSTOMER = o.ID_CUSTOMER
+       JOIN STATES s ON s.ID_STATE = o.ID_STATE
+       ${whereSql}
+     ORDER BY o.FECHA DESC
+     LIMIT ? OFFSET ?`,
+    [...params, Number(limit), Number(offset)]
+  )
+
+  return rows
+}
+
+export async function updateOrderState(orderId, newStateName) {
+  const stateId = await getStateIdByName(newStateName)
+  if (!stateId) throw Object.assign(new Error('STATE_NOT_FOUND'), { code: 'STATE_NOT_FOUND' })
+
+  const [res] = await pool.query(
+    `UPDATE ORDERS SET ID_STATE = ? WHERE ID_ORDER = ?`,
+    [stateId, orderId]
+  )
+  return res.affectedRows > 0
+}
+// Marca el pedido como ENTREGADO si el total entregado >= total pedido.
+// Si estaba ENTREGADO y ya no cumple, lo pasa a EN_PROCESO.
 export async function markOrderDeliveredIfComplete(orderId) {
-  const { peso_pedido, peso_entregado } = await getOrderWeights(orderId)
-  if (peso_pedido > 0 && peso_entregado >= peso_pedido) {
-    const [[st]] = await pool.query(`SELECT ID_STATE FROM STATES WHERE DESCRIPCION='ENTREGADO' LIMIT 1`)
-    if (st?.ID_STATE) {
-      await pool.query(`UPDATE ORDERS SET ID_STATE=? WHERE ID_ORDER=?`, [st.ID_STATE, orderId])
-      return true
-    }
+  const [[pedido]] = await pool.query(
+    'SELECT IFNULL(SUM(PESO),0) AS total FROM DESCRIPTION_ORDER WHERE ID_ORDER = ?',
+    [orderId]
+  )
+  const [[entregado]] = await pool.query(
+    `SELECT IFNULL(SUM(dd.PESO),0) AS total
+       FROM DESCRIPTION_DELIVERY dd
+       JOIN ORDER_DELIVERY od ON od.ID_ORDER_DELIVERY = dd.ID_ORDER_DELIVERY
+      WHERE od.ID_ORDER = ?`,
+    [orderId]
+  )
+  const pedidoTotal = Number(pedido.total || 0)
+  const entregadoTotal = Number(entregado.total || 0)
+
+  // Lee estado actual
+  const [[row]] = await pool.query(
+    `SELECT o.ID_STATE, s.DESCRIPCION AS state
+       FROM ORDERS o JOIN STATES s ON s.ID_STATE=o.ID_STATE
+      WHERE o.ID_ORDER=?`,
+    [orderId]
+  )
+  const current = row?.state
+
+  if (pedidoTotal > 0 && entregadoTotal >= pedidoTotal) {
+    // ENTREGADO
+    await updateOrderState(orderId, 'ENTREGADO')
+  } else if (current === 'ENTREGADO') {
+    // Si dejaron de cumplir (ediciones), baja a EN_PROCESO
+    await updateOrderState(orderId, 'EN_PROCESO')
   }
-  return false
 }

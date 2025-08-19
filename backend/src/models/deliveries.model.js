@@ -131,11 +131,13 @@ export class DeliveriesModel {
 
       await conn.commit()
 
-      // Resumen
-      const [sumRows] = await pool.query(
-        `SELECT COUNT(*) AS lineCount, IFNULL(SUM(SUBTOTAL),0) AS monto
-         FROM DESCRIPTION_DELIVERY WHERE ID_ORDER_DELIVERY = ?`, [deliveryId]
-      )
+// ← actualiza el estado del pedido si corresponde
+await markOrderDeliveredIfComplete(orderId)
+
+const [sumRows] = await pool.query(
+  `SELECT COUNT(*) AS lineCount, IFNULL(SUM(SUBTOTAL),0) AS monto
+   FROM DESCRIPTION_DELIVERY WHERE ID_ORDER_DELIVERY = ?`, [deliveryId]
+)
 
       return {
         id: deliveryId,

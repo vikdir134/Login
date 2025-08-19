@@ -1,72 +1,59 @@
+// backend/src/models/customers.model.js
 import { pool } from '../db.js'
 
-export class CustomersModel {
-  static async list({ q = '', active = null, limit = 50, offset = 0 }) {
-    const like = `%${q}%`
-    const params = []
-    let where = 'WHERE 1=1'
-    if (q) { where += ' AND (c.RAZON_SOCIAL LIKE ? OR c.RUC LIKE ?)'; params.push(like, like) }
-    if (active !== null) { where += ' AND c.ACTIVO = ?'; params.push(active ? 1 : 0) }
+// Lista básica con búsqueda por RUC / Razón social
+export async function listCustomersBasic({ q, limit = 50 }) {
+  let sql = `
+    SELECT
+      c.ID_CUSTOMER   AS id,
+      c.RUC,
+      c.RAZON_SOCIAL  AS razonSocial,
+      c.ACTIVO        AS activo
+    FROM CUSTOMERS c
+  `
+  const params = []
 
-    const [rows] = await pool.query(
-      `SELECT c.ID_CUSTOMER AS id, c.RUC, c.RAZON_SOCIAL AS razonSocial, c.ACTIVO AS activo, c.CREATED_AT
-       FROM CUSTOMERS c
-       ${where}
-       ORDER BY c.RAZON_SOCIAL ASC
-       LIMIT ? OFFSET ?`,
-      [...params, Number(limit), Number(offset)]
-    )
-    return rows
+  if (q && q.trim()) {
+    sql += ` WHERE c.RUC LIKE ? OR c.RAZON_SOCIAL LIKE ?`
+    params.push(`%${q}%`, `%${q}%`)
   }
 
-  static async create({ ruc, razonSocial, activo = 1 }) {
-    const [res] = await pool.query(
-      `INSERT INTO CUSTOMERS (RUC, RAZON_SOCIAL, ACTIVO) VALUES (?, ?, ?)`,
-      [ruc, razonSocial, activo ? 1 : 0]
-    )
-    return { id: res.insertId, ruc, razonSocial, activo: !!activo }
-  }
+  sql += ` ORDER BY c.RAZON_SOCIAL ASC LIMIT ?`
+  params.push(Number(limit))
 
-  // Resumen útil para la ficha de cliente
-  static async getSummary(customerId) {
-    const [[cust]] = await pool.query(
-      `SELECT ID_CUSTOMER AS id, RUC, RAZON_SOCIAL AS razonSocial, ACTIVO AS activo, CREATED_AT
-       FROM CUSTOMERS WHERE ID_CUSTOMER = ?`, [customerId]
-    )
-    if (!cust) return null
+  const [rows] = await pool.query(sql, params)
+  return rows
+}
 
-    const [[orders]] = await pool.query(
-      `SELECT
-          COUNT(*) AS totalPedidos,
-          SUM(CASE WHEN s.DESCRIPCION IN ('PENDIENTE','EN_PROCESO') THEN 1 ELSE 0 END) AS pedidosAbiertos
-        FROM ORDERS o
-        JOIN STATES s ON s.ID_STATE = o.ID_STATE
-        WHERE o.ID_CUSTOMER = ?`, [customerId]
-    )
+// Cliente por id
+export async function findCustomerById(id) {
+  const [rows] = await pool.query(
+    `SELECT
+       c.ID_CUSTOMER   AS id,
+       c.RUC,
+       c.RAZON_SOCIAL  AS razonSocial,
+       c.ACTIVO        AS activo,
+       c.CREATED_AT    AS createdAt
+     FROM CUSTOMERS c
+     WHERE c.ID_CUSTOMER = ?`,
+    [id]
+  )
+  return rows[0] || null
+}
 
-    const [[pagos]] = await pool.query(
-      `SELECT IFNULL(SUM(p.AMOUNT),0) AS totalPagado
-       FROM PAYMENTS p
-       JOIN ORDERS o ON o.ID_ORDER = p.ID_ORDER
-       WHERE o.ID_CUSTOMER = ?`, [customerId]
-    )
-
-    const [[entregas]] = await pool.query(
-      `SELECT IFNULL(SUM(dd.SUBTOTAL),0) AS totalEntregadoValor,
-              IFNULL(SUM(dd.PESO),0)     AS totalEntregadoPeso
-       FROM ORDER_DELIVERY od
-       JOIN ORDERS o ON o.ID_ORDER = od.ID_ORDER
-       JOIN DESCRIPTION_DELIVERY dd ON dd.ID_ORDER_DELIVERY = od.ID_ORDER_DELIVERY
-       WHERE o.ID_CUSTOMER = ?`, [customerId]
-    )
-
-    return {
-      ...cust,
-      totalPedidos: Number(orders.totalPedidos || 0),
-      pedidosAbiertos: Number(orders.pedidosAbiertos || 0),
-      totalPagado: Number(pagos.totalPagado || 0),
-      totalEntregadoValor: Number(entregas.totalEntregadoValor || 0),
-      totalEntregadoPeso: Number(entregas.totalEntregadoPeso || 0)
-    }
-  }
+// Pedidos del cliente (resumen)
+export async function listOrdersByCustomer(customerId) {
+  const [rows] = await pool.query(
+    `SELECT
+       o.ID_ORDER     AS id,
+       o.FECHA        AS fecha,
+       s.DESCRIPCION  AS state
+     FROM ORDERS o
+     JOIN STATES s ON s.ID_STATE = o.ID_STATE
+     WHERE o.ID_CUSTOMER = ?
+     ORDER BY o.FECHA DESC
+     LIMIT 200`,
+    [customerId]
+  )
+  return rows
 }

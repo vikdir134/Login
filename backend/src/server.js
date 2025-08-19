@@ -13,6 +13,7 @@ import ordersRouter from './routes/orders.routes.js'
 import deliveriesRouter from './routes/deliveries.routes.js'
 import suppliersRouter from './routes/suppliers.routes.js'
 import purchasesRouter from './routes/purchases.routes.js'
+import catalogRouter from './routes/catalog.routes.js'
 
 const app = express();
 app.use(cors({ origin: 'http://localhost:5173' }));
@@ -23,13 +24,13 @@ app.get('/', (_req, res) => res.send('API OK'));
 // Rutas
 app.use('/api/auth', authRouter);
 app.use('/api/admin', adminRouter);
-app.use('/api', customersRouter)
+app.use('/api/customers', customersRouter)
 app.use('/api', suppliersRouter)
 app.use('/api', purchasesRouter)
-app.use('/api', ordersRouter)
+app.use('/api/orders', ordersRouter)
 app.use('/api', paymentsRouter)
 app.use('/api', deliveriesRouter)
-
+app.use('/api/catalog', catalogRouter)
 
 // Ejemplo protegido
 app.get('/api/secure/hello', authRequired, (req, res) => {

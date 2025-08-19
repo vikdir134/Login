@@ -7,8 +7,8 @@ export default function DefaultByRole() {
   const role = me?.role
 
   if (role === 'ALMACENERO')    return <Navigate to="/app/almacen" replace />
-  if (role === 'PRODUCCION')    return <Navigate to="/app/pedidos" replace /> // o "/app/almacen" si prefieres
-  if (role === 'JEFE')          return <Navigate to="/app" replace />         // Dashboard
+  if (role === 'PRODUCCION')    return <Navigate to="/app/pedidos" replace />
+  if (role === 'JEFE')          return <Navigate to="/app" replace />
   if (role === 'ADMINISTRADOR') return <Navigate to="/app" replace />
 
   return <Navigate to="/login" replace />

@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react'
 import { Link, useParams } from 'react-router-dom'
 import { fetchCustomerSummary } from '../api/customers'
-import { fetchOrders } from '../api/orders'
+import { listOrders } from '../api/orders'
 import { hasRole, getUserFromToken } from '../utils/auth'
 
 export default function ClienteDetalle() {
@@ -19,7 +19,7 @@ export default function ClienteDetalle() {
     setLoading(true)
     Promise.all([
       fetchCustomerSummary(id),
-      fetchOrders({ customerId: id })
+      listOrders({ customerId: id })
     ])
       .then(([i, os]) => { if (alive) { setInfo(i); setOrders(os) } })
       .catch(() => { if (alive) setMsg('Error cargando datos de cliente') })
