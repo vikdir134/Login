@@ -402,3 +402,12 @@ input:focus, select:focus, textarea:focus{
   padding: 16px;
   box-shadow: var(--shadow);
 }
+.modal-backdrop{
+  position: fixed; inset: 0; background: rgba(0,0,0,.4);
+  display: grid; place-items: center; z-index: 50;
+}
+.modal-card{
+  width: 100%; max-width: 720px; background: var(--surface);
+  border: 1px solid var(--border); border-radius: 16px; padding: 16px;
+  box-shadow: var(--shadow);
+}

@@ -23,6 +23,7 @@ import presentationsRouter from './routes/presentations.routes.js'
 import almacenRouter from './routes/almacen.routes.js'
 import catalogRouter from './routes/catalog.routes.js'
 import productPresentationsRouter from './routes/product-presentations.routes.js'
+import mermaRouter from './routes/merma.routes.js'
 import { finishedInputRouter } from './routes/finished-input.routes.js'
 
 const app = express();
@@ -51,6 +52,7 @@ app.use('/api/almacen', almacenRouter)
 app.use('/api/stock/finished', finishedInputRouter)
 app.use('/api', presentationsRouter)
 app.use('/api', productPresentationsRouter)
+app.use('/api', mermaRouter)
 
 // Ejemplo protegido
 app.get('/api/secure/hello', authRequired, (req, res) => {

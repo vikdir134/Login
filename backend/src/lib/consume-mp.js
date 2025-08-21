@@ -1,54 +1,58 @@
-// src/lib/consume-mp.js
-import { pool } from '../db.js'
+// backend/src/lib/consume-mp.js
+import { getFirstZoneByTipo } from './zones.js'
 
-// consume MP por FIFO primero de PRODUCCION y luego de RECEPCION
-export async function consumeMPFIFO(conn, { primaterId, peso }) {
+/**
+ * Descuenta MP con prioridad: PRODUCCION y luego RECEPCION.
+ * Inserta filas negativas en STOCK_ZONE (modelo basado en movimientos).
+ *
+ * @param {object} conn  - conexión (transacción abierta)
+ * @param {object} p     - { primaterId: number, peso: number, note?: string }
+ */
+export async function consumeMPFIFO(conn, { primaterId, peso, note }) {
   const need = Number(peso)
-  if (!(need > 0)) return
+  if (!(need > 0)) throw new Error('Consumo inválido')
 
-  // zonas en orden de consumo
-  const [zones] = await conn.query(
-    `SELECT ID_SPACE id, TIPO FROM SPACES WHERE TIPO IN ('PRODUCCION','RECEPCION') ORDER BY FIELD(TIPO,'PRODUCCION','RECEPCION')`
-  )
+  const prodZone = await getFirstZoneByTipo(conn, 'PRODUCCION')
+  const recZone  = await getFirstZoneByTipo(conn, 'RECEPCION')
+  if (!prodZone || !recZone) throw new Error('Zonas PRODUCCION o RECEPCION no configuradas')
+
+  const getSaldo = async (zoneId) => {
+    const [[r]] = await conn.query(
+      `SELECT IFNULL(SUM(PESO),0) saldo
+       FROM STOCK_ZONE
+       WHERE ID_SPACE=? AND ID_PRIMATER=?`,
+      [zoneId, primaterId]
+    )
+    return Number(r?.saldo || 0)
+  }
+
   let remaining = need
 
-  for (const z of zones) {
-    if (remaining <= 1e-9) break
-
-    // Traer “lotes” por fecha de esa zona
-    const [lots] = await conn.query(
-      `SELECT sz.ID_STOCK_ZONE id, sz.PESO
-       FROM STOCK_ZONE sz
-       WHERE sz.ID_PRIMATER = ? AND sz.ID_SPACE = ?
-       ORDER BY sz.FECHA ASC, sz.ID_STOCK_ZONE ASC`,
-      [primaterId, z.id]
-    )
-
-    for (const lot of lots) {
-      if (remaining <= 1e-9) break
-      const take = Math.min(remaining, Number(lot.PESO))
-      if (take <= 0) continue
-
-      // registramos salida insertando movimiento de MP (origen z.id → destino PRODUCCION, pero aquí es “consumo”)
-      await conn.query(
-        `INSERT INTO STOCK_MOVEMENTS_PRIMARY
-           (ID_ORIGIN_ZONE, ID_DESTINATION_ZONE, ID_PRIMATER, CANTIDAD, FECHA, OBSERVACION)
-         VALUES (?, NULL, ?, ?, NOW(), 'Consumo para PT')`,
-        [z.id, primaterId, take]
-      )
-
-      // reflejo de salida: insertamos negativo en STOCK_ZONE o insertamos otra fila con peso negativo
+  // 1) consumir de PRODUCCION
+  const saldoProd = await getSaldo(prodZone.id)
+  if (saldoProd > 0) {
+    const consume = Math.min(saldoProd, remaining)
+    if (consume > 1e-9) {
       await conn.query(
         `INSERT INTO STOCK_ZONE (ID_SPACE, ID_PRIMATER, PESO, FECHA, OBSERVACION)
-         VALUES (?, ?, ?, NOW(), 'Consumo para PT')`,
-        [z.id, primaterId, -take]
+         VALUES (?, ?, ?, NOW(), ?)`,
+        [prodZone.id, primaterId, -consume, note || 'Consumo PT (producción)']
       )
-
-      remaining -= take
+      remaining -= consume
     }
   }
 
+  // 2) faltar → consumir de RECEPCION
   if (remaining > 1e-9) {
-    throw new Error('Stock de Materia Prima insuficiente')
+    const saldoRec = await getSaldo(recZone.id)
+    if (saldoRec <= 0 || saldoRec + 1e-9 < remaining) {
+      throw new Error('Stock insuficiente de MP (Producción+Recepción)')
+    }
+    await conn.query(
+      `INSERT INTO STOCK_ZONE (ID_SPACE, ID_PRIMATER, PESO, FECHA, OBSERVACION)
+       VALUES (?, ?, ?, NOW(), ?)`,
+      [recZone.id, primaterId, -remaining, note || 'Consumo PT (recepción)']
+    )
+    remaining = 0
   }
 }

@@ -1,4 +1,4 @@
-// src/routes/finished-input.routes.js
+// backend/src/routes/finished-input.routes.js
 import { Router } from 'express'
 import { pool } from '../db.js'
 import { getZone, ensureZoneAccepts } from '../lib/zones.js'
@@ -6,19 +6,7 @@ import { consumeMPFIFO } from '../lib/consume-mp.js'
 
 export const finishedInputRouter = Router()
 
-/**
- * POST /api/stock/finished/input
- * Body:
- * {
- *   productId: number,
- *   zoneId: number,              // debe ser ALMACEN
- *   peso: number,
- *   presentationId?: number,
- *   presentationKg?: number,
- *   useComposition?: boolean,    // default: true si existe composición
- *   consumos?: [{ primaterId:number, peso:number }]   // requerido si NO usamos composición
- * }
- */
+// POST /api/stock/finished/input
 finishedInputRouter.post('/input', async (req, res) => {
   const {
     productId,
@@ -38,24 +26,20 @@ finishedInputRouter.post('/input', async (req, res) => {
   try {
     await conn.beginTransaction()
 
-    // validar zona
     const zone = await getZone(conn, zoneId)
     if (!zone) throw new Error('Zona no existe')
-    ensureZoneAccepts('PT', zone) // solo ALMACEN
+    ensureZoneAccepts('PT', zone)
 
-    // 1) ¿tiene composición?
+    // composición
     const [comp] = await conn.query(
       `SELECT ID_PRIMATER primaterId, ZONE, PERCENTAGE
        FROM PRODUCT_COMPOSITION WHERE ID_PRODUCT = ?`,
       [productId]
     )
     const hasComposition = comp.length > 0
-    const willUseComposition = (useComposition === undefined)
-      ? hasComposition
-      : !!useComposition
+    const willUseComposition = (useComposition === undefined) ? hasComposition : !!useComposition
 
-    // 2) calcular/validar consumos MP
-    let toConsume = [] // [{primaterId, peso}]
+    let toConsume = []
     if (willUseComposition) {
       if (!hasComposition) throw new Error('El producto no tiene composición definida')
       for (const c of comp) {
@@ -63,7 +47,6 @@ finishedInputRouter.post('/input', async (req, res) => {
         if (need > 0) toConsume.push({ primaterId: c.primaterId, peso: need })
       }
     } else {
-      // consumos manuales
       if (!Array.isArray(consumos) || consumos.length === 0) {
         throw new Error('Debe indicar consumos de MP')
       }
@@ -74,38 +57,28 @@ finishedInputRouter.post('/input', async (req, res) => {
       toConsume = consumos.map(x => ({ primaterId: Number(x.primaterId), peso: Number(x.peso) }))
     }
 
-    // 3) consumir MP (FIFO: PRODUCCION -> RECEPCION)
+    // consumir MP (produce filas negativas en STOCK_ZONE)
     for (const item of toConsume) {
-      await consumeMPFIFO(conn, { primaterId: item.primaterId, peso: item.peso })
+      await consumeMPFIFO(conn, { primaterId: item.primaterId, peso: item.peso, note: `Consumo PT#?` })
     }
 
-    // 4) validar presentación
+    // presentación
     let presId = presentationId ?? null
     let presKg = null
 
     if (presentationId) {
-      const [p] = await conn.query(
-        `SELECT ID_PRESENTATION id, PESO_KG pesoKg, ID_PRODUCT
-         FROM PRODUCT_PRESENTATIONS WHERE ID_PRESENTATION=?`,
+      const [[p]] = await conn.query(
+        `SELECT ID_PRESENTATION, ID_PRODUCT, PESO_KG FROM PRODUCT_PRESENTATIONS WHERE ID_PRESENTATION=?`,
         [presentationId]
       )
-      if (!p.length) throw new Error('Presentación no encontrada')
-      if (Number(p[0].ID_PRODUCT) !== Number(productId)) {
-        throw new Error('Presentación no corresponde al producto')
-      }
-      presKg = Number(p[0].pesoKg)
+      if (!p) throw new Error('Presentación no encontrada')
+      if (Number(p.ID_PRODUCT) !== Number(productId)) throw new Error('Presentación no corresponde al producto')
+      presKg = Number(p.PESO_KG)
     } else if (presentationKg) {
       presKg = Number(presentationKg)
       if (!(presKg > 0)) throw new Error('presentationKg inválido')
-      // opcional: verificar que exista en catálogo, si quieres forzar
-      // const [found] = await conn.query(
-      //   `SELECT ID_PRESENTATION id FROM PRODUCT_PRESENTATIONS WHERE ID_PRODUCT=? AND PESO_KG=?`,
-      //   [productId, presKg]
-      // )
-      // if (!found.length) throw new Error('Presentación no está en el catálogo')
     }
 
-    // 5) Registrar el lote de PT en ALMACEN
     await conn.query(
       `INSERT INTO STOCK_FINISHED_PRODUCT
          (ID_PRODUCT, ID_SPACE, PESO, FECHA, PRESENTATION_KG, ID_PRESENTATION)
@@ -118,11 +91,11 @@ finishedInputRouter.post('/input', async (req, res) => {
   } catch (e) {
     await conn.rollback()
     const msg = e.message || 'Error'
-    if (/no acepta/.test(msg) || /no existe/.test(msg) || /consumos/.test(msg) || /Presentación/.test(msg) || /insuficiente/.test(msg)) {
+    if (/no admite|no existe|consumos|Presentación|insuficiente/.test(msg)) {
       return res.status(400).json({ error: msg })
     }
     console.error(e)
-    res.status(500).json({ error: 'Error al ingresar producto terminado' })
+    res.status(500).json({ error: 'Error al ingresar PT' })
   } finally {
     conn.release()
   }
