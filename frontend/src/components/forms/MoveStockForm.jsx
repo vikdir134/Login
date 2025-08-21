@@ -1,7 +1,7 @@
 // src/components/forms/MoveStockForm.jsx
 import { useEffect, useState } from 'react'
 import { listZones, moveStock } from '../../api/stock'
-import { listPrimaryMaterials } from '../../api/primaryMaterials'
+import { listPrimaryMaterials } from '../../api/primary-materials'
 import { listProducts } from '../../api/products'
 
 export default function MoveStockForm({ onDone }) {

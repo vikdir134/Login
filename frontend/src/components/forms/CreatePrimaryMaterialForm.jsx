@@ -1,7 +1,7 @@
 // src/components/forms/CreatePrimaryMaterialForm.jsx
 import { useEffect, useState } from 'react'
 import { listMaterials, listColors } from '../../api/catalog'
-import { createPrimaryMaterial } from '../../api/primaryMaterials'
+import { createPrimaryMaterial } from '../../api/primary-materials'
 
 export default function CreatePrimaryMaterialForm({ onDone }) {
   const [materials, setMaterials] = useState([])

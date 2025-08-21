@@ -1,6 +1,6 @@
 // src/components/forms/AddPrimaryStockForm.jsx
 import { useEffect, useState } from 'react'
-import { listPrimaryMaterials } from '../../api/primaryMaterials'
+import { listPrimaryMaterials } from '../../api/primary-materials'
 import { listZones, addPrimaryStock } from '../../api/stock'
 
 export default function AddPrimaryStockForm({ onDone }) {

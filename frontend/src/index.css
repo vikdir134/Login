@@ -385,3 +385,20 @@ input:focus, select:focus, textarea:focus{
 
 .sidebar .only-when-collapsed{ display: none; }
 .app-shell.is-collapsed .sidebar .only-when-collapsed{ display: inline-block !important; }
+/* Modal básico */
+.modal-backdrop{
+  position: fixed; inset: 0;
+  background: rgba(0,0,0,.45);
+  display: grid; place-items: center;
+  z-index: 50;
+}
+.modal{
+  width: 100%;
+  max-width: 560px;
+  background: var(--surface);
+  color: var(--text);
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  padding: 16px;
+  box-shadow: var(--shadow);
+}

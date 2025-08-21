@@ -1,25 +1,39 @@
+// src/models/suppliers.model.js
 import { pool } from '../db.js'
 
 export class SuppliersModel {
-  static async list({ q = '', limit = 50, offset = 0 } = {}) {
-    const like = `%${q}%`
+  static async list({ q = '', limit = 50, offset = 0, active = undefined }) {
+    const params = []
+    let where = ' WHERE 1=1 '
+    if (q) { where += ' AND (NAME LIKE ? OR RUC LIKE ?) '; params.push(`%${q}%`, `%${q}%`) }
+    if (active !== undefined) { where += ' AND ACTIVE = ? '; params.push(active ? 1 : 0) }
+
     const [rows] = await pool.query(
-      `SELECT ID_SUPPLIER AS id, RUC, NAME AS name, ADDRESS, PHONE, EMAIL, CONTACT_PERSON AS contact, ACTIVE
+      `SELECT
+         ID_SUPPLIER AS id,
+         NAME       AS name,
+         RUC        AS ruc,
+         ADDRESS    AS address,
+         PHONE      AS phone,
+         EMAIL      AS email,
+         CONTACT_PERSON AS contact,
+         ACTIVE     AS active
        FROM SUPPLIERS
-       WHERE (? = '' OR NAME LIKE ? OR RUC LIKE ?)
+       ${where}
        ORDER BY NAME ASC
        LIMIT ? OFFSET ?`,
-      [q, like, like, Number(limit), Number(offset)]
+      [...params, Number(limit), Number(offset)]
     )
     return rows
   }
 
-  static async create({ ruc, name, address = null, phone = null, email = null, contact = null, active = 1 }) {
-    const [res] = await pool.query(
-      `INSERT INTO SUPPLIERS (RUC, NAME, ADDRESS, PHONE, EMAIL, CONTACT_PERSON, ACTIVE)
+  static async create({ name, ruc = null, address = null, phone = null, email = null, contact = null, active = true }) {
+    const [ins] = await pool.query(
+      `INSERT INTO SUPPLIERS (NAME, RUC, ADDRESS, PHONE, EMAIL, CONTACT_PERSON, ACTIVE)
        VALUES (?, ?, ?, ?, ?, ?, ?)`,
-      [ruc, name, address, phone, email, contact, active ? 1 : 0]
+      [name, ruc, address, phone, email, contact, active ? 1 : 0]
     )
-    return { id: res.insertId, ruc, name, address, phone, email, contact, active: !!active }
+    const id = ins.insertId
+    return { id, name, ruc, address, phone, email, contact, active: !!active }
   }
 }

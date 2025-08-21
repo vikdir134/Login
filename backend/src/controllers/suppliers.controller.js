@@ -1,10 +1,11 @@
+// src/controllers/suppliers.controller.js
 import { z } from 'zod'
 import { SuppliersModel } from '../models/suppliers.model.js'
 
 const createSchema = z.object({
-  ruc: z.string().min(8).max(20),
-  name: z.string().min(2).max(100),
-  address: z.string().max(150).nullable().optional(),
+  name: z.string().min(2).max(120),
+  ruc: z.string().min(8).max(20).nullable().optional(),
+  address: z.string().max(200).nullable().optional(),
   phone: z.string().max(20).nullable().optional(),
   email: z.string().email().max(100).nullable().optional(),
   contact: z.string().max(100).nullable().optional(),
@@ -16,22 +17,26 @@ export async function listSuppliers(req, res) {
     const q = String(req.query.q || '')
     const limit = Number(req.query.limit || 50)
     const offset = Number(req.query.offset || 0)
-    const rows = await SuppliersModel.list({ q, limit, offset })
+    const active = req.query.active === undefined ? undefined : !!Number(req.query.active)
+    const rows = await SuppliersModel.list({ q, limit, offset, active })
     res.json(rows)
   } catch (e) {
-    console.error(e); res.status(500).json({ error: 'Error listando proveedores' })
+    console.error(e)
+    res.status(500).json({ error: 'Error listando proveedores' })
   }
 }
 
 export async function createSupplier(req, res) {
   try {
     const parsed = createSchema.safeParse(req.body)
-    if (!parsed.success) return res.status(400).json({ error: parsed.error.errors[0].message })
+    if (!parsed.success) {
+      return res.status(400).json({ error: parsed.error.errors[0].message })
+    }
     const sup = await SuppliersModel.create(parsed.data)
     res.status(201).json(sup)
   } catch (e) {
     console.error(e)
-    if (e.code === 'ER_DUP_ENTRY') return res.status(409).json({ error: 'RUC ya registrado' })
+    if (e.code === 'ER_DUP_ENTRY') return res.status(409).json({ error: 'Proveedor ya existe' })
     res.status(500).json({ error: 'Error creando proveedor' })
   }
 }

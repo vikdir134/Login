@@ -1,30 +1,24 @@
-// src/components/Modal.jsx
-export default function Modal({ open, title, children, onClose, maxWidth = 700 }) {
+export default function Modal({ open, title, children, onClose, wide = false }) {
   if (!open) return null
   return (
-    <div style={{
-      position:'fixed', inset:0, background:'rgba(0,0,0,.45)',
-      display:'grid', placeItems:'center', zIndex:99
-    }}
-      onClick={onClose}
-    >
-      <div
-        role="dialog"
-        aria-modal="true"
-        onClick={e=>e.stopPropagation()}
-        style={{
-          width:'min(92vw, '+maxWidth+'px)',
-          background:'var(--surface)', color:'var(--text)',
-          border:'1px solid var(--border)', borderRadius:16, boxShadow:'var(--shadow)',
-          padding:20
-        }}
-      >
-        <header style={{display:'flex',justifyContent:'space-between',alignItems:'center', marginBottom:8}}>
-          <h4 style={{margin:0}}>{title}</h4>
-          <button className="btn-secondary" onClick={onClose}>Cerrar</button>
-        </header>
-        {children}
+    <div style={overlay}>
+      <div style={{ ...panel, maxWidth: wide ? 720 : 520 }}>
+        <div style={hdr}>
+          <strong>{title}</strong>
+          <button onClick={onClose} className="btn-secondary" style={{ height: 36 }}>✕</button>
+        </div>
+        <div style={{ paddingTop: 8 }}>{children}</div>
       </div>
     </div>
   )
 }
+
+const overlay = {
+  position: 'fixed', inset: 0, background: 'rgba(0,0,0,.45)',
+  display: 'grid', placeItems: 'center', zIndex: 50
+}
+const panel = {
+  width: '100%', background: 'var(--surface)', border: '1px solid var(--border)',
+  borderRadius: 14, boxShadow: 'var(--shadow)', padding: 16
+}
+const hdr = { display: 'flex', alignItems: 'center', justifyContent: 'space-between' }

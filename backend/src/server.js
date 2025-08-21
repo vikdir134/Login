@@ -19,8 +19,11 @@ import customersRouter from './routes/customers.routes.js'
 import ordersRouter from './routes/orders.routes.js'
 import suppliersRouter from './routes/suppliers.routes.js'
 import purchasesRouter from './routes/purchases.routes.js'
-import catalogRouter from './routes/catalog.routes.js'
+import presentationsRouter from './routes/presentations.routes.js'
 import almacenRouter from './routes/almacen.routes.js'
+import catalogRouter from './routes/catalog.routes.js'
+import productPresentationsRouter from './routes/product-presentations.routes.js'
+import { finishedInputRouter } from './routes/finished-input.routes.js'
 
 const app = express();
 app.use(cors({ origin: 'http://localhost:5173' }));
@@ -43,8 +46,11 @@ app.use('/api/primary-materials', primaryMaterialsRouter)
 app.use('/api/products', productsRouter)
 app.use('/api/stock', stockRouter)
 app.use('/api', deliveriesRouter)
-app.use('/api/catalog', catalogRouter)
+app.use('/api', catalogRouter)
 app.use('/api/almacen', almacenRouter)
+app.use('/api/stock/finished', finishedInputRouter)
+app.use('/api', presentationsRouter)
+app.use('/api', productPresentationsRouter)
 
 // Ejemplo protegido
 app.get('/api/secure/hello', authRequired, (req, res) => {

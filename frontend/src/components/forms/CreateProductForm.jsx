@@ -1,6 +1,6 @@
 // src/components/forms/CreateProductForm.jsx
 import { useEffect, useMemo, useState } from 'react'
-import { listPrimaryMaterials } from '../../api/primaryMaterials'
+import { listPrimaryMaterials } from '../../api/primary-materials'
 import { createProduct, addCompositions } from '../../api/products'
 
 const ZONES = ['TRONCO','ALMA','CUBIERTA']

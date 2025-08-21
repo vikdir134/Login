@@ -1,19 +1,24 @@
 import { Router } from 'express'
-import { listPurchases, createPurchase } from '../controllers/purchases.controller.js'
 import { authRequired } from '../middleware/auth.js'
 import { requireRole } from '../middleware/roles.js'
+import { createPurchaseCtrl, listPurchasesCtrl,getPurchaseCtrl } from '../controllers/purchases.controller.js'
+import { normalizePurchase } from '../middleware/normalize-purchase.js'
 
 const router = Router()
-router.use(authRequired)
 
-router.get('/purchases',
-  requireRole('ADMINISTRADOR','JEFE','PRODUCCION'),
-  listPurchases
+router.get(
+  '/purchases',
+  authRequired,
+  requireRole(['ALMACENERO', 'JEFE', 'ADMINISTRADOR']),
+  listPurchasesCtrl
 )
-
-router.post('/purchases',
-  requireRole('ADMINISTRADOR','JEFE'),
-  createPurchase
+router.get('/purchases/:id', authRequired, getPurchaseCtrl)
+router.post(
+  '/purchases',
+  authRequired,
+  requireRole(['ALMACENERO', 'JEFE', 'ADMINISTRADOR']),
+  normalizePurchase,           // <-- aquí
+  createPurchaseCtrl
 )
 
 export default router

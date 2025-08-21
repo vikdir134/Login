@@ -1,23 +1,41 @@
-// src/api/stock.js
 import api from './axios'
 
-// zonas (si ya tienes SPACES)
-export const listZones = () => api.get('/api/zones').then(r=>r.data)
-// export const listZones = async () => (
-//   [{id:1,name:'RECEPCION'},{id:2,name:'ALMACEN_PRINCIPAL'},{id:3,name:'PT_ALMACEN'},{id:4,name:'MERMA'}]
-// )
+// === EXISTENTES (por si faltaba alguna) ===
+export const fetchSpaces = (tipo) =>
+  api.get('/api/catalog/spaces', { params: { tipo } }).then(r => r.data)
 
-// agregar stock de MP
-export const addPrimaryStock = (payload) =>
-  api.post('/api/stock/primary', payload).then(r=>r.data)
-// { primaterId, zoneId, peso, observacion }
+export const fetchPrimaryMaterials = () =>
+  api.get('/api/catalog/primary-materials', { params: { limit: 1000 } }).then(r => r.data)
 
-// agregar stock de PT
-export const addFinishedStock = (payload) =>
-  api.post('/api/stock/finished', payload).then(r=>r.data)
-// { productId, zoneId, peso, observacion }
 
-// mover entre zonas
-export const moveStock = (payload) =>
-  api.post('/api/stock/move', payload).then(r=>r.data)
-// { type: 'PRIMARY'|'FINISHED', itemId, fromZoneId, toZoneId, peso, observacion }
+
+export const fetchPresentations = (productId) =>
+  api.get(`/api/product-presentations/${productId}`).then(r => r.data)
+
+
+export const inputFinishedProduct = (payload) =>
+  api.post('/api/stock/finished/input', payload).then(r => r.data)
+
+// === NUEVO: Ingresar MP en RECEPCION ===
+export const inputPrimaryMaterial = (payload) =>
+  api.post('/api/stock/primary/input', payload).then(r => r.data)
+
+// === NUEVO: Catálogos básicos (materiales y colores) ===
+export const createMaterial = (payload) =>
+  api.post('/api/catalog/materials', payload).then(r => r.data)
+
+export const createColor = (payload) =>
+  api.post('/api/catalog/colors', payload).then(r => r.data)
+
+export const createPrimaryMaterial = (payload) =>
+  api.post('/api/catalog/primary-materials', payload).then(r => r.data)
+// src/api/stock.js
+
+export const fetchProducts = () =>
+  api.get('/api/catalog/products', { params: { limit: 1000 } }).then(r => r.data)
+
+export const createPresentation = ({ productId, presentationKg }) =>
+  api.post('/api/product-presentations', {
+    productId: Number(productId),
+    presentationKg: Number(presentationKg)
+  }).then(r => r.data)
