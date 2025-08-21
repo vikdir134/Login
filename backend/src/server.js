@@ -14,6 +14,7 @@ import deliveriesRouter from './routes/deliveries.routes.js'
 import suppliersRouter from './routes/suppliers.routes.js'
 import purchasesRouter from './routes/purchases.routes.js'
 import catalogRouter from './routes/catalog.routes.js'
+import almacenRouter from './routes/almacen.routes.js'
 
 const app = express();
 app.use(cors({ origin: 'http://localhost:5173' }));
@@ -29,8 +30,9 @@ app.use('/api', suppliersRouter)
 app.use('/api', purchasesRouter)
 app.use('/api/orders', ordersRouter)
 app.use('/api', paymentsRouter)
-app.use('/api', deliveriesRouter)
+app.use('/api/deliveries', deliveriesRouter)
 app.use('/api/catalog', catalogRouter)
+app.use('/api/almacen', almacenRouter)
 
 // Ejemplo protegido
 app.get('/api/secure/hello', authRequired, (req, res) => {

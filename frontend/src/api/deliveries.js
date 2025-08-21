@@ -1,11 +1,9 @@
+
+
 import api from './axios'
 
-export async function fetchDeliveriesByOrder(orderId) {
-  const { data } = await api.get(`/api/orders/${orderId}/deliveries`)
-  return data
-}
+export const fetchDeliveriesByOrder = (orderId) =>
+  api.get(`/api/orders/${orderId}/deliveries`).then(r => r.data)
 
-export async function createDelivery(orderId, payload) {
-  const { data } = await api.post(`/api/orders/${orderId}/deliveries`, payload)
-  return data
-}
+export const createDelivery = (orderId, payload) =>
+  api.post('/api/deliveries', { orderId: Number(orderId), ...payload }).then(r => r.data)

@@ -1,16 +1,9 @@
 import api from './axios'
 
-export async function fetchCustomers({ q = '', active = '', limit = 50, offset = 0 } = {}) {
-  const p = new URLSearchParams()
-  if (q) p.set('q', q)
-  if (active !== '') p.set('active', active)
-  p.set('limit', limit)
-  p.set('offset', offset)
-  const { data } = await api.get(`/api/customers?${p.toString()}`)
-  return data
-}
+// lista
+export const fetchCustomers = (params = {}) =>
+  api.get('/api/customers', { params }).then(r => r.data)
 
-export async function fetchCustomerSummary(id) {
-  const { data } = await api.get(`/api/customers/${id}`)
-  return data
-}
+// detalle (devuelve { customer, orders })
+export const fetchCustomerDetail = (id) =>
+  api.get(`/api/customers/${id}`).then(r => r.data)

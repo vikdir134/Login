@@ -1,25 +1,16 @@
 import { Router } from 'express'
-import { createDelivery, listDeliveriesByOrder } from '../controllers/deliveries.controller.js'
-import { authRequired } from '../middleware/auth.js'        // <- ruta correcta (singular)
-import { requireRole } from '../middleware/roles.js'        // <- si ya lo tienes
+import { authRequired } from '../middleware/auth.js'
+import { listDeliveriesByOrder, createDelivery } from '../controllers/deliveries.controller.js'
 
 const router = Router()
 
-// Crear entrega para un pedido (PRODUCCION/JEFE/ADMINISTRADOR)
-router.post(
-  '/orders/:orderId/deliveries',
-  authRequired,
-  requireRole('PRODUCCION', 'JEFE', 'ADMINISTRADOR'),
-  (req, _res, next) => { req.body.orderId = Number(req.params.orderId); next() },
-  createDelivery
-)
+// Ruta “oficial”
+router.get('/order/:orderId', authRequired, listDeliveriesByOrder)
+router.post('/', authRequired, createDelivery)
 
-// Listar entregas de un pedido (PRODUCCION/JEFE/ADMINISTRADOR)
-router.get(
-  '/orders/:orderId/deliveries',
-  authRequired,
-  requireRole('PRODUCCION', 'JEFE', 'ADMINISTRADOR'),
-  listDeliveriesByOrder
-)
+// Alias para compatibilidad con el front viejo:
+router.get('/../orders/:orderId/deliveries', authRequired, listDeliveriesByOrder)
+// o si las rutas de orders están en su router, añade ahí:
+// ordersRouter.get('/:orderId/deliveries', authRequired, listDeliveriesByOrder)
 
 export default router
