@@ -7,10 +7,16 @@ import authRouter from './routes/auth.routes.js';
 import adminRouter from './routes/admin.routes.js';
 import { authRequired } from './middleware/auth.js';
 import { testConnection } from './db.js';
+import { zonesRouter } from './routes/zones.routes.js'
+import { colorsRouter } from './routes/colors.routes.js'
+import { materialsRouter } from './routes/materials.routes.js'
+import { primaryMaterialsRouter } from './routes/primary-materials.routes.js'
+import { productsRouter } from './routes/products.routes.js'
+import { stockRouter } from './routes/stock.routes.js'
+import deliveriesRouter from './routes/deliveries.routes.js'
 import paymentsRouter from './routes/payments.routes.js'
 import customersRouter from './routes/customers.routes.js'
 import ordersRouter from './routes/orders.routes.js'
-import deliveriesRouter from './routes/deliveries.routes.js'
 import suppliersRouter from './routes/suppliers.routes.js'
 import purchasesRouter from './routes/purchases.routes.js'
 import catalogRouter from './routes/catalog.routes.js'
@@ -30,7 +36,13 @@ app.use('/api', suppliersRouter)
 app.use('/api', purchasesRouter)
 app.use('/api/orders', ordersRouter)
 app.use('/api', paymentsRouter)
-app.use('/api/deliveries', deliveriesRouter)
+app.use('/api/zones', zonesRouter)
+app.use('/api/colors', colorsRouter)
+app.use('/api/materials', materialsRouter)
+app.use('/api/primary-materials', primaryMaterialsRouter)
+app.use('/api/products', productsRouter)
+app.use('/api/stock', stockRouter)
+app.use('/api', deliveriesRouter)
 app.use('/api/catalog', catalogRouter)
 app.use('/api/almacen', almacenRouter)
 

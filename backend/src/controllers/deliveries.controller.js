@@ -17,24 +17,22 @@ const createDeliverySchema = z.object({
 
 export async function createDelivery(req, res) {
   try {
-    const parsed = createDeliverySchema.safeParse(req.body)
-    if (!parsed.success) return res.status(400).json({ error: parsed.error.errors[0].message })
+    const { orderId, facturaId, lines } = req.body
     const createdBy = req.user?.id ?? null
-    const created = await DeliveriesModel.create({ ...parsed.data, createdBy })
-    res.status(201).json(created)
+    const out = await DeliveriesModel.create({ orderId, facturaId: facturaId ?? null, createdBy, lines })
+    res.status(201).json(out)
   } catch (e) {
+    if (e.code === 'ORDER_NOT_FOUND')    return res.status(404).json({ error: 'Pedido no existe' })
+    if (e.code === 'ORDER_LINE_INVALID') return res.status(400).json({ error: 'Línea de pedido inválida' })
+    if (e.code === 'NO_EFFECTIVE_PRICE') return res.status(400).json({ error: 'No hay precio vigente' })
+    if (e.code === 'EXCEEDS_PENDING')    return res.status(400).json({ error: 'Excede lo pendiente' })
+    if (String(e.message).includes('insuficiente')) return res.status(400).json({ error: 'Stock PT insuficiente' })
     console.error(e)
-    if (e.code === 'ORDER_NOT_FOUND')     return res.status(404).json({ error: 'Pedido no existe' })
-    if (e.code === 'ORDER_LINE_INVALID')  return res.status(400).json({ error: 'Línea de pedido inválida' })
-    if (e.code === 'NO_EFFECTIVE_PRICE')  return res.status(400).json({ error: 'No hay precio vigente para esta línea y fecha' })
-    if (e.code === 'INSUFFICIENT_STOCK_PT') return res.status(400).json({ error: 'Stock de producto terminado insuficiente' })
-    if (e.code === 'PT_SPACE_MISSING')    return res.status(500).json({ error: 'Falta zona PT_ALMACEN' })
     res.status(500).json({ error: 'Error creando entrega' })
   }
 }
 
-
-export async function listDeliveriesByOrder(req, res) {
+export async function listDeliveriesByOrder(req, res) {////////
   try {
     const { orderId } = req.params
     const data = await DeliveriesModel.listByOrder(Number(orderId))
