@@ -1,49 +1,60 @@
 // frontend/src/pages/Almacen.jsx
 import { useEffect, useMemo, useState } from 'react'
-import { fetchPrimaryStock, fetchFinishedStock } from '../api/stock' // asegúrate que existen
-// fetchPrimaryStock({ zone:'RECEPCION'|'PRODUCCION', limit, offset, q })
-// fetchFinishedStock({ limit, offset, q })
-
-function fmtKg(n) {
-  const num = Number(n)
-  if (!isFinite(num)) return '0.00'
-  return num.toFixed(2)
-}
-function fmtDate(d) {
-  if (!d) return '—'
-  const t = new Date(d)
-  return isNaN(t.getTime()) ? '—' : t.toLocaleString()
-}
+import { fetchPrimaryStock, fetchFinishedStock, fetchMerma } from '../api/stock'
+import { getUserFromToken, hasRole } from '../utils/auth'
+import AddPTModal from '../components/AddPTModal'
+import MoveMPModal from '../components/MoveMPModal'
+import AddMermaModal from '../components/AddMermaModal'
+import ExtrasModal from '../components/ExtrasModal'
+const fmtKg = (v) => (Number.isFinite(Number(v)) ? Number(v).toFixed(2) : '0.00')
+const fmtDate = (s) => s ? new Date(s).toLocaleString() : '—'
 
 const TABS = [
-  { key: 'ALMACEN', label: 'Almacén (PT)' },
+  { key: 'ALMACEN',   label: 'Almacén (PT)' },
   { key: 'RECEPCION', label: 'Recepción (MP)' },
-  { key: 'PRODUCCION', label: 'Producción (MP)' },
-  // { key: 'MERMA', label: 'Merma' }, // cuando integres merma aquí la activas
+  { key: 'PRODUCCION',label: 'Producción (MP)' },
+  { key: 'MERMA',     label: 'Merma' }
 ]
 
 export default function Almacen() {
-  const [tab, setTab] = useState('RECEPCION') // por defecto Recepción (como pediste)
+  const me = getUserFromToken()
+  const puedePT      = hasRole(me,'JEFE') || hasRole(me,'ADMINISTRADOR') || hasRole(me,'PRODUCCION')
+  const puedeMoverMP = hasRole(me,'JEFE') || hasRole(me,'ADMINISTRADOR') || hasRole(me,'ALMACENERO') || hasRole(me,'PRODUCCION')
+  const puedeMerma   = hasRole(me,'JEFE') || hasRole(me,'ADMINISTRADOR') || hasRole(me,'ALMACENERO') || hasRole(me,'PRODUCCION')
+
+  const [tab, setTab] = useState('ALMACEN')
   const [q, setQ] = useState('')
   const [page, setPage] = useState(0)
-  const pageSize = useMemo(() => (tab === 'ALMACEN' ? 30 : 30), [tab])
+  const pageSize = 30
 
   const [rows, setRows] = useState([])
   const [total, setTotal] = useState(0)
   const [loading, setLoading] = useState(true)
   const [msg, setMsg] = useState('')
 
+  // modales
+  const [openPT, setOpenPT] = useState(false)
+  const [openMove, setOpenMove] = useState(false)
+  const [openMerma, setOpenMerma] = useState(false)
+  const [openExtras, setOpenExtras] = useState(false)
+  // ID de zona de PT almacén (ajústalo si varía)
+  const PT_ALMACEN_ID = 18
+
   const load = async () => {
     setLoading(true); setMsg('')
     try {
       if (tab === 'ALMACEN') {
-        const data = await fetchFinishedStock({ limit: pageSize, offset: page * pageSize, q: q || undefined })
-        setRows(Array.isArray(data?.items) ? data.items : [])
-        setTotal(Number(data?.total || 0))
+        const data = await fetchFinishedStock({ q, limit: pageSize, offset: page * pageSize })
+        setRows(Array.isArray(data.items) ? data.items : [])
+        setTotal(Number(data.total || 0))
+      } else if (tab === 'MERMA') {
+        const data = await fetchMerma({ q, limit: pageSize, offset: page * pageSize })
+        setRows(Array.isArray(data.items) ? data.items : [])
+        setTotal(Number(data.total || 0))
       } else {
-        const data = await fetchPrimaryStock({ zone: tab, limit: pageSize, offset: page * pageSize, q: q || undefined })
-        setRows(Array.isArray(data?.items) ? data.items : [])
-        setTotal(Number(data?.total || 0))
+        const data = await fetchPrimaryStock({ zone: tab, q, limit: pageSize, offset: page * pageSize })
+        setRows(Array.isArray(data.items) ? data.items : [])
+        setTotal(Number(data.total || 0))
       }
     } catch (e) {
       console.error(e)
@@ -54,11 +65,16 @@ export default function Almacen() {
     }
   }
 
-  useEffect(() => { setPage(0) }, [tab]) // reset paginación al cambiar pestaña
-  useEffect(() => { load() }, [tab, page]) // eslint-disable-line
+  useEffect(() => { setPage(0) }, [tab])
+  useEffect(() => { load() /* eslint-disable-line */ }, [tab, page])
 
+  const totalPages = useMemo(() => Math.max(1, Math.ceil((total||0) / pageSize)), [total])
   const canPrev = page > 0
   const canNext = (page + 1) * pageSize < total
+  const onSearch = (e) => { e.preventDefault(); setPage(0); load() }
+
+  // Decide origen por pestaña para el modal mover MP
+  const defaultFromForMove = tab === 'RECEPCION' ? 'RECEPCION' : 'PRODUCCION'
 
   return (
     <section className="card">
@@ -76,70 +92,86 @@ export default function Almacen() {
           ))}
         </div>
         <div style={{ flex: 1 }} />
-        <form
-          onSubmit={(e)=>{e.preventDefault(); setPage(0); load()}}
-          style={{ display:'flex', gap:8 }}
-        >
+        <form onSubmit={onSearch} style={{ display:'flex', gap:8 }}>
           <input placeholder="Buscar…" value={q} onChange={e=>setQ(e.target.value)} />
           <button className="btn-secondary">Filtrar</button>
         </form>
+        {/* Acciones contextuales */}
+        {tab === 'ALMACEN' && (
+          <>
+            {puedePT && <button className="btn" onClick={()=>setOpenPT(true)}>+ Producto Terminado</button>}
+            <button className="btn-secondary" onClick={()=>setOpenExtras(true)}>Extras</button>
+          </>
+        )}
+
+        {(tab === 'RECEPCION' || tab === 'PRODUCCION') && puedeMoverMP && (
+          <button className="btn-secondary" onClick={()=>setOpenMove(true)}>Mover MP</button>
+        )}
+        {tab === 'MERMA' && puedeMerma && (
+          <button className="btn-secondary" onClick={()=>setOpenMerma(true)}>+ Merma</button>
+        )}
       </div>
 
-      {msg && <div className="error" style={{ marginTop:8 }}>{msg}</div>}
+      {msg && <div className="muted" style={{ marginTop:8 }}>{msg}</div>}
 
       {/* Tabla */}
       <div className="table" style={{ marginTop: 12 }}>
-        {/* CABECERAS */}
-        {tab === 'ALMACEN' ? (
-          <div className="table__head" style={{ gridTemplateColumns:'2fr 1fr 1fr' }}>
-            <div>Producto</div>
-            <div>Presentación</div>
-            <div>Stock (kg)</div>
-          </div>
-        ) : (
-          <div className="table__head" style={{ gridTemplateColumns:'2fr 1fr 1fr 1fr' }}>
-            <div>Materia prima</div>
-            <div>Denier</div>
-            <div>Stock (kg)</div>
-            <div>Última act.</div>
-          </div>
+        {tab === 'ALMACEN' && (
+          <>
+            <div className="table__head" style={{ gridTemplateColumns:'2fr 1fr 1fr' }}>
+              <div>Producto</div>
+              <div>Presentación</div>
+              <div>Stock (kg)</div>
+            </div>
+            {!loading && rows.map((r, i) => (
+              <div className="table__row" key={`${r.productId}-${r.presentationId ?? 'NA'}-${i}`} style={{ gridTemplateColumns:'2fr 1fr 1fr' }}>
+                <div>{r.productName || r.DESCRIPCION || `Producto #${r.productId}`}</div>
+                <div>{r.presentationKg ? `${fmtKg(r.presentationKg)} kg` : '—'}</div>
+                <div>{fmtKg(r.stockKg)}</div>
+              </div>
+            ))}
+          </>
         )}
 
-        {/* FILAS */}
-        {!loading && rows.map((r, i) => {
-          if (tab === 'ALMACEN') {
-            // Backend /finished: { productId, productName, presentationId, presentationKg, stockKg }
-            const name = r.productName || r.DESCRIPCION || `Prod #${r.productId}`
-            const pres = (r.presentationKg != null && isFinite(Number(r.presentationKg)))
-              ? `${Number(r.presentationKg).toFixed(2)} kg`
-              : '—'
-            const stock = fmtKg(r.stockKg)
-            return (
-              <div className="table__row" key={`${r.productId}-${r.presentationId ?? 'NA'}-${i}`} style={{ gridTemplateColumns:'2fr 1fr 1fr' }}>
-                <div>{name}</div>
-                <div>{pres}</div>
-                <div>{stock}</div>
-              </div>
-            )
-          } else {
-            // Backend /primary: { primaterId, material, color, descripcion, denier, stockKg, lastUpdate }
-            const title = [r.material, r.color].filter(Boolean).join(' / ') || `MP #${r.primaterId}`
-            const denier = (r.denier != null && isFinite(Number(r.denier))) ? String(r.denier) : 'Sin denier'
-            const stock = fmtKg(r.stockKg)
-            const last = fmtDate(r.lastUpdate)
-            return (
-              <div className="table__row" key={`${r.primaterId}-${i}`} style={{ gridTemplateColumns:'2fr 1fr 1fr 1fr' }}>
+        {(tab === 'RECEPCION' || tab === 'PRODUCCION') && (
+          <>
+            <div className="table__head" style={{ gridTemplateColumns:'2fr 1.2fr 1fr 1fr' }}>
+              <div>Materia prima</div>
+              <div>Color / Denier</div>
+              <div>Stock (kg)</div>
+              <div>Última act.</div>
+            </div>
+            {!loading && rows.map((r, i) => (
+              <div className="table__row" key={`${r.primaterId}-${i}`} style={{ gridTemplateColumns:'2fr 1.2fr 1fr 1fr' }}>
                 <div>
-                  <div>{title}</div>
-                  <div className="muted">{r.descripcion || ''}</div>
+                  <div>{[r.material, r.descripcion].filter(Boolean).join(' · ')}</div>
                 </div>
-                <div>{denier}</div>
-                <div>{stock}</div>
-                <div>{last}</div>
+                <div>{(r.color || '—') + ' / ' + (r.denier != null ? r.denier : 'Sin denier')}</div>
+                <div>{fmtKg(r.stockKg)}</div>
+                <div>{fmtDate(r.lastUpdate)}</div>
               </div>
-            )
-          }
-        })}
+            ))}
+          </>
+        )}
+
+        {tab === 'MERMA' && (
+          <>
+            <div className="table__head" style={{ gridTemplateColumns:'1fr 2fr 1fr 1fr' }}>
+              <div>Tipo</div>
+              <div>Ítem</div>
+              <div>Merma (kg)</div>
+              <div>Última act.</div>
+            </div>
+            {!loading && rows.map((r, i) => (
+              <div className="table__row" key={`${r.id || i}`} style={{ gridTemplateColumns:'1fr 2fr 1fr 1fr' }}>
+                <div>{r.type || r.TIPO || '—'}</div>
+                <div>{r.name || r.itemName || r.DESCRIPCION || '—'}</div>
+                <div>{fmtKg(r.stockKg || r.peso || r.MERMA)}</div>
+                <div>{fmtDate(r.lastUpdate)}</div>
+              </div>
+            ))}
+          </>
+        )}
 
         {loading && <div className="muted">Cargando…</div>}
         {!loading && rows.length === 0 && <div className="muted">Sin resultados</div>}
@@ -148,11 +180,29 @@ export default function Almacen() {
       {/* Paginación */}
       <div style={{ display:'flex', gap:8, marginTop:10, alignItems:'center' }}>
         <button className="btn-secondary" disabled={!canPrev} onClick={()=>setPage(p=>Math.max(0, p-1))}>Anterior</button>
-        <div className="muted">
-          Página {page+1} de {Math.max(1, Math.ceil(total / pageSize))}
-        </div>
+        <div className="muted">Página {page+1} de {totalPages}</div>
         <button className="btn-secondary" disabled={!canNext} onClick={()=>setPage(p=>p+1)}>Siguiente</button>
       </div>
+
+      {/* Modales */}
+      <AddPTModal
+        open={openPT}
+        onClose={()=>setOpenPT(false)}
+        defaultZoneId={PT_ALMACEN_ID}
+        onDone={load}
+      />
+      <MoveMPModal
+        open={openMove}
+        onClose={()=>setOpenMove(false)}
+        onDone={load}
+        defaultFrom={defaultFromForMove}
+      />
+      <AddMermaModal
+        open={openMerma}
+        onClose={()=>setOpenMerma(false)}
+        onDone={load}
+      />
+      <ExtrasModal open={openExtras} onClose={()=>setOpenExtras(false)} />
     </section>
   )
 }

@@ -1,126 +1,88 @@
+// frontend/src/components/ExtrasModal.jsx
 import { useEffect, useState } from 'react'
-import { createColor, createMaterial, createPresentation, listProducts } from '../api/almacen'
+import { createColor, createMaterial, createPresentation, fetchProductsLite } from '../api/extras'
 
-const TABS = ['material','color','presentacion']
+export default function ExtrasModal({ open, onClose }) {
+  const [tab, setTab] = useState('COLOR')
+  const [name, setName] = useState('')
 
-export default function ExtrasModal({ open, onClose, onSaved }) {
-  const [tab, setTab] = useState('material')
-  const [msg, setMsg] = useState('')
-  const [saving, setSaving] = useState(false)
-
-  // material
-  const [matDesc, setMatDesc] = useState('')
-
-  // color
-  const [colDesc, setColDesc] = useState('')
-
-  // presentacion
   const [products, setProducts] = useState([])
   const [productId, setProductId] = useState('')
-  const [pesoKg, setPesoKg] = useState('')
+  const [presentationKg, setPresentationKg] = useState('')
+  const [msg, setMsg] = useState('')
+  const [sending, setSending] = useState(false)
 
   useEffect(() => {
     if (!open) return
-    setTab('material'); setMsg('')
-    listProducts({ limit: 1000 }).then(setProducts).catch(() => setProducts([]))
+    setTab('COLOR'); setName(''); setMsg(''); setProductId(''); setPresentationKg('')
+    fetchProductsLite().then(setProducts).catch(()=>setProducts([]))
   }, [open])
 
-  const reset = () => {
-    setMatDesc(''); setColDesc(''); setProductId(''); setPesoKg(''); setMsg('')
-  }
-
   const submit = async (e) => {
-    e.preventDefault()
-    setMsg('')
-    setSaving(true)
+    e.preventDefault(); setMsg(''); setSending(true)
     try {
-      if (tab === 'material') {
-        if (!matDesc || matDesc.trim().length < 2) throw new Error('Descripción de material inválida')
-        await createMaterial({ descripcion: matDesc.trim() })
-      } else if (tab === 'color') {
-        if (!colDesc || colDesc.trim().length < 2) throw new Error('Descripción de color inválida')
-        await createColor({ descripcion: colDesc.trim() })
+      if (tab === 'COLOR') {
+        if (!name.trim()) throw new Error('Nombre requerido')
+        await createColor(name.trim())
+        setMsg('✅ Color creado')
+      } else if (tab === 'MATERIAL') {
+        if (!name.trim()) throw new Error('Nombre requerido')
+        await createMaterial(name.trim())
+        setMsg('✅ Material creado')
       } else {
-        // presentacion
-        if (!productId) throw new Error('Selecciona un producto')
-        if (!(Number(pesoKg) > 0)) throw new Error('Peso de presentación inválido')
-        await createPresentation({ productId: Number(productId), pesoKg: Number(pesoKg) })
+        if (!productId) throw new Error('Selecciona producto')
+        if (!(+presentationKg > 0)) throw new Error('Presentación inválida')
+        await createPresentation({ productId: Number(productId), presentationKg: Number(presentationKg) })
+        setMsg('✅ Presentación agregada')
       }
-      onSaved?.()
-      reset()
-      onClose?.()
-    } catch (e2) {
-      console.error(e2)
-      setMsg(e2.response?.data?.error || e2.message || 'Error guardando')
+    } catch (err) {
+      setMsg(err.response?.data?.error || err.message || 'Error')
     } finally {
-      setSaving(false)
+      setSending(false)
     }
   }
 
   if (!open) return null
   return (
-    <div className="modal-backdrop">
-      <div className="modal-card">
-        <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center' }}>
+    <div className="modal modal--center">
+      <div className="modal__card">
+        <div className="modal__header">
           <h4 style={{ margin:0 }}>Extras</h4>
           <button className="btn-secondary" onClick={onClose}>Cerrar</button>
         </div>
 
-        <div style={{ display:'flex', gap:8, marginTop:12 }}>
-          {TABS.map(t => (
-            <button
-              key={t}
-              className={`btn-secondary${tab===t?' nav-item--active':''}`}
-              onClick={()=>setTab(t)}
-            >
-              {t === 'material' ? 'Material' : t === 'color' ? 'Color' : 'Presentación'}
-            </button>
-          ))}
+        <div style={{ display:'flex', gap:6, marginBottom:8 }}>
+          <button className={tab==='COLOR'?'btn':'btn-secondary'} onClick={()=>setTab('COLOR')}>Agregar Color</button>
+          <button className={tab==='MATERIAL'?'btn':'btn-secondary'} onClick={()=>setTab('MATERIAL')}>Agregar Material</button>
+          <button className={tab==='PRESENT'?'btn':'btn-secondary'} onClick={()=>setTab('PRESENT')}>Agregar Presentación</button>
         </div>
 
-        <form onSubmit={submit} style={{ display:'grid', gap:12, marginTop:12 }}>
-          {tab === 'material' && (
+        <form onSubmit={submit} className="form-col" style={{ gap:12 }}>
+          {tab !== 'PRESENT' ? (
             <label className="form-field">
-              <span>Descripción del material</span>
-              <input value={matDesc} onChange={e => setMatDesc(e.target.value)} placeholder="Ej. Polipropileno" />
+              <span>Nombre</span>
+              <input value={name} onChange={e=>setName(e.target.value)} required />
             </label>
-          )}
-
-          {tab === 'color' && (
-            <label className="form-field">
-              <span>Descripción del color</span>
-              <input value={colDesc} onChange={e => setColDesc(e.target.value)} placeholder="Ej. Azul" />
-            </label>
-          )}
-
-          {tab === 'presentacion' && (
+          ) : (
             <>
               <label className="form-field">
                 <span>Producto</span>
-                <select value={productId} onChange={e => setProductId(e.target.value)}>
+                <select value={productId} onChange={e=>setProductId(e.target.value)} required>
                   <option value="">—</option>
-                  {products.map(p => (
-                    <option key={p.id || p.ID_PRODUCT} value={p.id || p.ID_PRODUCT}>
-                      {p.name || p.DESCRIPCION || `Producto #${p.id || p.ID_PRODUCT}`}
-                    </option>
-                  ))}
+                  {products.map(p => <option key={p.id} value={p.id}>{p.name || p.DESCRIPCION}</option>)}
                 </select>
               </label>
               <label className="form-field">
-                <span>Peso de la presentación (kg)</span>
-                <input type="number" step="0.01" min="0.01" value={pesoKg} onChange={e => setPesoKg(e.target.value)} />
+                <span>Presentación (kg)</span>
+                <input type="number" step="0.01" min="0.01" value={presentationKg} onChange={e=>setPresentationKg(e.target.value)} required />
               </label>
             </>
           )}
 
-          <div style={{ display:'flex', gap:8 }}>
-            <div style={{ flex:1 }} />
-            <button className="btn" disabled={saving}>
-              {saving ? 'Guardando…' : 'Guardar'}
-            </button>
+          {msg && <div className={/✅/.test(msg)?'muted':'error'}>{msg}</div>}
+          <div className="form-actions" style={{ justifyContent:'flex-end' }}>
+            <button className="btn" disabled={sending}>{sending ? 'Guardando…' : 'Guardar'}</button>
           </div>
-
-          {msg && <div className="error">{msg}</div>}
         </form>
       </div>
     </div>

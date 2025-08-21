@@ -392,22 +392,22 @@ input:focus, select:focus, textarea:focus{
   display: grid; place-items: center;
   z-index: 50;
 }
-.modal{
+
+/* centrar modales */
+.modal.modal--center {
+  position: fixed;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(16,16,16,.25);
+  z-index: 1000;
+}
+.modal__card {
+  max-width: 720px;
   width: 100%;
-  max-width: 560px;
-  background: var(--surface);
-  color: var(--text);
-  border: 1px solid var(--border);
+  background: var(--bg, #fff);
   border-radius: 14px;
+  box-shadow: 0 10px 40px rgba(0,0,0,.2);
   padding: 16px;
-  box-shadow: var(--shadow);
-}
-.modal-backdrop{
-  position: fixed; inset: 0; background: rgba(0,0,0,.4);
-  display: grid; place-items: center; z-index: 50;
-}
-.modal-card{
-  width: 100%; max-width: 720px; background: var(--surface);
-  border: 1px solid var(--border); border-radius: 16px; padding: 16px;
-  box-shadow: var(--shadow);
 }
