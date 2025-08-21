@@ -57,3 +57,32 @@ export async function listOrdersByCustomer(customerId) {
   )
   return rows
 }
+
+// === NUEVO: crear cliente ===
+export async function createCustomerBasic({ RUC, razonSocial, activo = true }) {
+  if (!RUC || !razonSocial) {
+    const e = new Error('RUC y Razón social son obligatorios')
+    e.code = 'BAD_INPUT'
+    throw e
+  }
+  const r = String(RUC).trim()
+  const rs = String(razonSocial).trim()
+  if (!/^\d{8,11}$/.test(r)) {
+    const e = new Error('RUC debe tener entre 8 y 11 dígitos numéricos')
+    e.code = 'BAD_INPUT'
+    throw e
+  }
+  if (rs.length < 2 || rs.length > 60) {
+    const e = new Error('Razón social debe tener entre 2 y 60 caracteres')
+    e.code = 'BAD_INPUT'
+    throw e
+  }
+
+  const [ins] = await pool.query(
+    `INSERT INTO CUSTOMERS (RUC, RAZON_SOCIAL, ACTIVO)
+     VALUES (?, ?, ?)`,
+    [r, rs, activo ? 1 : 0]
+  )
+  const id = ins.insertId
+  return { id, RUC: r, razonSocial: rs, activo: !!activo }
+}

@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { listOrders, createOrderApi } from '../api/orders'
 import { hasRole, getUserFromToken } from '../utils/auth'
+import { fetchCustomers } from '../api/customers'
 import api from '../api/axios'
 
 export default function Pedidos() {
@@ -32,22 +33,18 @@ export default function Pedidos() {
   })
 
   const fetchCatalogs = async () => {
-    // Endpoints de catálogo “ligero” (puedes ajustarlos a los tuyos)
-    // Si aún no tienes endpoints, puedes rellenar temporalmente con los IDs de prueba
-    try {
-      const [cRes, pRes] = await Promise.all([
-        api.get('/api/catalog/customers?limit=100').catch(() => ({ data: [] })), // opcional
-        api.get('/api/catalog/products?limit=100').catch(() => ({ data: [] })),  // opcional
-      ])
-      setCustomers(Array.isArray(cRes.data) ? cRes.data : [])
-      setProducts(Array.isArray(pRes.data) ? pRes.data : [])
-    } catch {
-      // fallback si no tienes endpoints de catálogo:
-      setCustomers([{ id: 10, name: 'ACME SAC' }, { id: 11, name: 'FIBRAS PERÚ' }])
-      setProducts([{ id: 10, name: 'Soga 12mm polipropileno' }, { id: 11, name: 'Cuerda 8mm poliéster' }])
-    }
+  try {
+    // clientes reales
+    const cs = await fetchCustomers({ q: '', limit: 500 })
+    setCustomers(Array.isArray(cs) ? cs : [])
+    // productos puedes dejarlos igual que ya los cargas
+    const pRes = await api.get('/api/catalog/products?limit=100').catch(() => ({ data: [] }))
+    setProducts(Array.isArray(pRes.data) ? pRes.data : [])
+  } catch {
+    setCustomers([])
+    setProducts([])
   }
-
+}
   const load = async () => {
     setLoading(true)
     setMsg('')
@@ -167,10 +164,16 @@ export default function Pedidos() {
           <form onSubmit={submitCreate} style={{ display: 'grid', gap: 12 }}>
             <label>
               Cliente
-              <select value={form.customerId} onChange={e => setForm(f => ({ ...f, customerId: e.target.value }))} required>
+              <select
+                value={form.customerId}
+                onChange={e => setForm(f => ({ ...f, customerId: e.target.value }))}
+                required
+              >
                 <option value="">— Selecciona —</option>
                 {customers.map(c => (
-                  <option key={c.id} value={c.id}>{c.name || c.RAZON_SOCIAL || `Cliente #${c.id}`}</option>
+                  <option key={c.id} value={c.id}>
+                    {c.razonSocial || c.RAZON_SOCIAL || `Cliente #${c.id}`}
+                  </option>
                 ))}
               </select>
             </label>

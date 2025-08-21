@@ -2,7 +2,8 @@
 import {
   findCustomerById,
   listCustomersBasic,
-  listOrdersByCustomer
+  listOrdersByCustomer,
+  createCustomerBasic
 } from '../models/customers.model.js'
 
 export async function listCustomers(req, res) {
@@ -29,5 +30,23 @@ export async function getCustomerDetail(req, res) {
   } catch (e) {
     console.error(e)
     res.status(500).json({ error: 'Error obteniendo detalle de cliente' })
+  }
+}
+
+// === NUEVO: crear cliente ===
+export async function createCustomer(req, res) {
+  try {
+    const { RUC, razonSocial, activo = true } = req.body
+    const cli = await createCustomerBasic({ RUC, razonSocial, activo })
+    res.status(201).json(cli)
+  } catch (e) {
+    if (e.code === 'ER_DUP_ENTRY') {
+      return res.status(409).json({ error: 'RUC o Razón social ya registrados' })
+    }
+    if (e.code === 'BAD_INPUT') {
+      return res.status(400).json({ error: e.message })
+    }
+    console.error(e)
+    res.status(500).json({ error: 'Error creando cliente' })
   }
 }

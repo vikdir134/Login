@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { fetchCustomers } from '../api/customers'
 import { hasRole, getUserFromToken } from '../utils/auth'
+import AddCustomerModal from '../components/AddCustomerModal'
 
 export default function Clientes() {
   const me = getUserFromToken()
@@ -12,21 +13,29 @@ export default function Clientes() {
   const [loading, setLoading] = useState(true)
   const [msg, setMsg] = useState('')
 
-  useEffect(() => {
-    let alive = true
-    setLoading(true)
-    fetchCustomers({ q })
-      .then(data => { if (alive) setRows(data) })
-      .catch(() => { if (alive) setMsg('Error cargando clientes') })
-      .finally(() => alive && setLoading(false))
-    return () => { alive = false }
-  }, [q])
+  const [openNew, setOpenNew] = useState(false)
+
+  const load = async () => {
+    setLoading(true); setMsg('')
+    try {
+      const data = await fetchCustomers({ q, limit: 200 })
+      setRows(Array.isArray(data) ? data : [])
+    } catch {
+      setMsg('Error cargando clientes')
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  useEffect(() => { load() }, [q])
 
   return (
     <section className="card">
       <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center' }}>
         <h3 style={{ margin:0 }}>Clientes</h3>
-        {puedeCrear && <Link className="btn" to="/app/clientes/nuevo">+ Nuevo</Link>}
+        {puedeCrear && (
+          <button className="btn" onClick={()=>setOpenNew(true)}>+ Nuevo</button>
+        )}
       </div>
 
       <div style={{ margin:'12px 0' }}>
@@ -59,6 +68,12 @@ export default function Clientes() {
       )}
 
       {msg && <div className="muted" style={{ marginTop:8 }}>{msg}</div>}
+
+      <AddCustomerModal
+        open={openNew}
+        onClose={()=>setOpenNew(false)}
+        onSuccess={load}
+      />
     </section>
   )
 }
