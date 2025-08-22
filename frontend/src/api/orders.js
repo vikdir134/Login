@@ -16,3 +16,22 @@ export const createOrderApi = (payload) =>
 // cambiar estado
 export const changeOrderStateApi = (id, state) =>
   api.patch(`/api/orders/${id}/state`, { state }).then(r => r.data)
+
+export const addOrderLine = (orderId, { productId, peso, presentacion }) =>
+  api.post(`/api/orders/${orderId}/lines`, { productId, peso, presentacion }).then(r=>r.data)
+
+// NUEVO: actualizar línea
+export const updateOrderLine = (orderId, lineId, patch) =>
+  api.patch(`/api/orders/${orderId}/lines/${lineId}`, patch).then(r=>r.data)
+
+// NUEVO: eliminar línea
+export const deleteOrderLine = (orderId, lineId) =>
+  api.delete(`/api/orders/${orderId}/lines/${lineId}`).then(r=>r.data)
+
+// NUEVO: cancelar pedido
+export const cancelOrder = (orderId) =>
+  api.post(`/api/orders/${orderId}/cancel`).then(r=>r.data)
+
+// NUEVO: reactivar pedido (el backend recalcula estado: PENDIENTE/EN_PROCESO/ENTREGADO)
+export const reactivateOrder = (orderId) =>
+  api.post(`/api/orders/${orderId}/reactivate`).then(r=>r.data)

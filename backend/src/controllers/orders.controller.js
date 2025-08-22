@@ -4,7 +4,7 @@ import {
   createOrderWithLines,
   getOrderById,
   listOrders,
-  updateOrderState
+  updateOrderState,recomputeAndSetOrderState, setOrderStateByName
 } from '../models/orders.model.js'
 
 const lineSchema = z.object({
@@ -83,5 +83,30 @@ export async function changeOrderState(req, res) {
     console.error(e)
     if (e.code === 'STATE_NOT_FOUND') return res.status(400).json({ error: 'Estado inválido' })
     res.status(500).json({ error: 'Error cambiando estado' })
+  }
+}
+export async function cancelOrderCtrl(req, res) {
+  try {
+    const orderId = Number(req.params.id)
+    const ok = await setOrderStateByName(orderId, 'CANCELADO')
+    if (!ok) return res.status(404).json({ error: 'Pedido no encontrado' })
+    const order = await getOrderById(orderId)
+    res.json(order)
+  } catch (e) {
+    console.error(e)
+    res.status(500).json({ error: 'Error cancelando pedido' })
+  }
+}
+
+export async function reactivateOrderCtrl(req, res) {
+  try {
+    const orderId = Number(req.params.id)
+    const ok = await recomputeAndSetOrderState(orderId)
+    if (!ok) return res.status(404).json({ error: 'Pedido no encontrado' })
+    const order = await getOrderById(orderId)
+    res.json(order)
+  } catch (e) {
+    console.error(e)
+    res.status(500).json({ error: 'Error reactivando pedido' })
   }
 }

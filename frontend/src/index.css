@@ -477,3 +477,8 @@ input:focus, select:focus, textarea:focus{
 .icon-btn:hover {
   background: rgba(0,0,0,0.06);
 }
+.badge { padding:2px 8px; border-radius:999px; background:#ccc; color:#000; font-weight:600; }
+.badge--danger { background:#ffd6d6; color:#b00000; }    /* Pendiente */
+.badge--warning { background:#fff4c2; color:#8a6d00; }   /* En proceso */
+.badge--success { background:#d9f7d9; color:#0a7a0a; }   /* Entregado */
+.badge--dark { background:#333; color:#fff; }            /* Cancelado */

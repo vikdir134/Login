@@ -6,19 +6,39 @@ import {
   createOrder,
   getOrder,
   listOrdersCtrl,
-  changeOrderState
+  changeOrderState,
+  cancelOrderCtrl,
+  reactivateOrderCtrl,
 } from '../controllers/orders.controller.js'
+import {
+  addOrderLineCtrl,
+  updateOrderLineCtrl,
+  deleteOrderLineCtrl,
+  listOrderDeliveriesAliasCtrl,
+} from '../controllers/orders.lines.controller.js'
 
 const router = Router()
 
-// Listar / ver (muchos roles)
+// Listar / ver
 router.get('/', authRequired, requireRole(['ALMACENERO','PRODUCCION','JEFE','ADMINISTRADOR']), listOrdersCtrl)
 router.get('/:id', authRequired, requireRole(['ALMACENERO','PRODUCCION','JEFE','ADMINISTRADOR']), getOrder)
 
-// Crear (Producción/Jefe/Admin)
+// Crear
 router.post('/', authRequired, requireRole(['PRODUCCION','JEFE','ADMINISTRADOR']), createOrder)
 
-// Cambiar estado (Jefe/Admin)
+// Cambiar estado directo (si lo quieres mantener)
 router.patch('/:id/state', authRequired, requireRole(['JEFE','ADMINISTRADOR']), changeOrderState)
+
+// NUEVO: cancelar / reactivar (recalcula estado real al reactivar)
+router.post('/:id/cancel', authRequired, requireRole(['JEFE','ADMINISTRADOR']), cancelOrderCtrl)
+router.post('/:id/reactivate', authRequired, requireRole(['JEFE','ADMINISTRADOR']), reactivateOrderCtrl)
+
+// NUEVO: CRUD de líneas
+router.post('/:id/lines', authRequired, requireRole(['PRODUCCION','JEFE','ADMINISTRADOR']), addOrderLineCtrl)
+router.patch('/:id/lines/:lineId', authRequired, requireRole(['PRODUCCION','JEFE','ADMINISTRADOR']), updateOrderLineCtrl)
+router.delete('/:id/lines/:lineId', authRequired, requireRole(['PRODUCCION','JEFE','ADMINISTRADOR']), deleteOrderLineCtrl)
+
+// Alias de entregas para el front
+router.get('/:orderId/deliveries', authRequired, listOrderDeliveriesAliasCtrl)
 
 export default router

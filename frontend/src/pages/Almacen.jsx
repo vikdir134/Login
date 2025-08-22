@@ -2,11 +2,12 @@
 import { useEffect, useMemo, useState } from 'react'
 import {
   fetchPrimaryStock,
-  fetchFinishedSummary,   // <-- nuevo (resumen PT)
-  fetchFinishedByProduct, // <-- nuevo (detalle por presentaciones)
+  fetchFinishedSummary,
+  fetchFinishedByProduct,
   fetchMerma,
   deleteMerma
 } from '../api/stock'
+import api from '../api/axios'
 import { getUserFromToken, hasRole } from '../utils/auth'
 import AddPTModal from '../components/AddPTModal'
 import MoveMPModal from '../components/MoveMPModal'
@@ -27,6 +28,99 @@ const TABS = [
   { key: 'MERMA',     label: 'Merma' }
 ]
 
+/** Modal para elegir producto SIN composición (usa endpoint dedicado) */
+function PickProductForCompModal({ open, onClose, onPicked }) {
+  const [loading, setLoading] = useState(true)
+  const [items, setItems] = useState([])
+  const [q, setQ] = useState('')
+  const [msg, setMsg] = useState('')
+
+  useEffect(() => {
+    if (!open) return
+    let alive = true
+    setLoading(true); setMsg('')
+    ;(async () => {
+      try {
+        const r = await api.get('/api/products/without-composition') // <-- SOLO sin composición
+        if (!alive) return
+        const rows = Array.isArray(r.data) ? r.data : []
+        setItems(rows)
+        if (rows.length === 0) setMsg('Todos los productos tienen composición.')
+      } catch (e) {
+        if (!alive) return
+        setItems([])
+        setMsg(e.response?.data?.error || 'No se pudo obtener la lista de productos sin composición')
+      } finally {
+        if (alive) setLoading(false)
+      }
+    })()
+    return () => { alive = false }
+  }, [open])
+
+  const filtered = useMemo(() => {
+    const term = q.trim().toLowerCase()
+    if (!term) return items
+    return items.filter(p =>
+      String(p.name || p.DESCRIPCION || '').toLowerCase().includes(term)
+    )
+  }, [items, q])
+
+  if (!open) return null
+  return (
+    <div className="modal modal--center">
+      <div className="modal__card" style={{ minWidth: 520 }}>
+        <div className="modal__header">
+          <h4 style={{ margin:0 }}>Elegir producto (sin composición)</h4>
+          <button className="btn-secondary" onClick={onClose}>Cerrar</button>
+        </div>
+
+        <div className="form-col" style={{ gap: 10 }}>
+          <form onSubmit={(e)=>e.preventDefault()} style={{ display:'flex', gap:8 }}>
+            <input
+              placeholder="Buscar producto…"
+              value={q}
+              onChange={e=>setQ(e.target.value)}
+              style={{ flex:1 }}
+            />
+            <button className="btn-secondary" onClick={()=>setQ(q.trim())}>Filtrar</button>
+          </form>
+
+          {loading ? (
+            <div className="muted">Cargando…</div>
+          ) : (
+            <>
+              {msg && <div className="muted">{msg}</div>}
+              <div className="table" style={{ maxHeight: 360, overflow:'auto' }}>
+                <div className="table__head" style={{ gridTemplateColumns:'2fr auto' }}>
+                  <div>Producto</div>
+                  <div>Acciones</div>
+                </div>
+                {filtered.map(p => {
+                  const id = p.id || p.ID_PRODUCT
+                  const name = p.name || p.DESCRIPCION || `Producto #${id}`
+                  return (
+                    <div key={id} className="table__row" style={{ gridTemplateColumns:'2fr auto' }}>
+                      <div>{name}</div>
+                      <div>
+                        <button className="btn" onClick={()=>onPicked?.(id)}>
+                          Elegir
+                        </button>
+                      </div>
+                    </div>
+                  )
+                })}
+                {filtered.length === 0 && (
+                  <div className="muted">Sin resultados</div>
+                )}
+              </div>
+            </>
+          )}
+        </div>
+      </div>
+    </div>
+  )
+}
+
 export default function Almacen() {
   const me = getUserFromToken()
   const puedePT      = hasRole(me,'JEFE') || hasRole(me,'ADMINISTRADOR') || hasRole(me,'PRODUCCION')
@@ -38,15 +132,15 @@ export default function Almacen() {
   const [page, setPage] = useState(0)
   const pageSize = 30
 
-  const [rows, setRows] = useState([])   // lista principal (depende de pestaña)
+  const [rows, setRows] = useState([])
   const [total, setTotal] = useState(0)
   const [loading, setLoading] = useState(true)
   const [msg, setMsg] = useState('')
 
-  // PT expand (detalle por presentaciones)
-  const [expandedPT, setExpandedPT] = useState(null) // productId o null
+  // PT expand
+  const [expandedPT, setExpandedPT] = useState(null)
   const [ptDetailLoading, setPtDetailLoading] = useState(false)
-  const [ptDetailRows, setPtDetailRows] = useState([]) // presentaciones del producto expandido
+  const [ptDetailRows, setPtDetailRows] = useState([])
 
   // modales
   const [openPT, setOpenPT] = useState(false)
@@ -57,14 +151,11 @@ export default function Almacen() {
   const [rowToRemove, setRowToRemove] = useState(null)
   const [openCreateMP, setOpenCreateMP] = useState(false)
   const [openCreatePT, setOpenCreatePT] = useState(false)
+
+  // composición (nuevo flujo)
   const [openComp, setOpenComp] = useState(false)
   const [productForComp, setProductForComp] = useState(null)
-
-  // (opcionales futuros)
-  // const [openCreateMP, setOpenCreateMP] = useState(false)
-  // const [openCreatePT, setOpenCreatePT] = useState(false)
-  // const [openComp, setOpenComp]         = useState(false)
-  // const [productForComp, setProductForComp] = useState('')
+  const [openPickComp, setOpenPickComp] = useState(false)
 
   const PT_ALMACEN_ID = 18
   const defaultFromForMove = tab === 'RECEPCION' ? 'RECEPCION' : 'PRODUCCION'
@@ -73,7 +164,6 @@ export default function Almacen() {
     setLoading(true); setMsg('')
     try {
       if (tab === 'ALMACEN') {
-        // RESUMEN por producto
         const data = await fetchFinishedSummary({ q, limit: pageSize, offset: page * pageSize })
         setRows(Array.isArray(data?.items) ? data.items : [])
         setTotal(Number(data?.total || 0))
@@ -98,7 +188,6 @@ export default function Almacen() {
   useEffect(() => { setPage(0); setExpandedPT(null); setPtDetailRows([]) }, [tab])
   useEffect(() => { load() /* eslint-disable-line */ }, [tab, page])
 
-  const totalPages = useMemo(() => Math.max(1, Math.ceil((total || 0) / pageSize)), [total])
   const canPrev = page > 0
   const canNext = (page + 1) * pageSize < total
   const onSearch = (e) => { e.preventDefault(); setPage(0); setExpandedPT(null); setPtDetailRows([]); load() }
@@ -113,8 +202,9 @@ export default function Almacen() {
     setPtDetailRows([])
     setPtDetailLoading(true)
     try {
-      const det = await fetchFinishedByProduct(productId) // [{presentationId,presentationKg,stockKg,...}]
+      const det = await fetchFinishedByProduct(productId)
       setPtDetailRows(Array.isArray(det) ? det : [])
+      // Nota: ya no ponemos "Componer" por fila
     } catch (e) {
       console.error(e)
       setPtDetailRows([])
@@ -123,7 +213,6 @@ export default function Almacen() {
     }
   }
 
-  // ======= acciones =======
   const onDeleteMerma = async (row) => {
     const id = row.id || row.ID || row.rowId || row.ID_STOCK_ZONE
     if (!id) { setMsg('No se puede borrar: faltan datos'); return }
@@ -171,9 +260,8 @@ export default function Almacen() {
             <button className="btn-secondary" onClick={()=>setOpenCreatePT(true)}>Crear PT</button>
             <button
               className="btn-secondary"
-              disabled={!productForComp}
-              title={productForComp ? '' : 'Abre un producto (Ver) para editar su composición'}
-              onClick={()=>setOpenComp(true)}
+              onClick={()=>setOpenPickComp(true)}
+              title="Definir composición para productos que aún no la tienen"
             >
               Composición
             </button>
@@ -340,24 +428,36 @@ export default function Almacen() {
         onDone={load}
       />
 
-              <CreatePrimaryMaterialModal
-          open={openCreateMP}
-          onClose={()=>setOpenCreateMP(false)}
-          onDone={()=>{ if (tab !== 'ALMACEN') load() }}
-        />
+      <CreatePrimaryMaterialModal
+        open={openCreateMP}
+        onClose={()=>setOpenCreateMP(false)}
+        onDone={()=>{ if (tab !== 'ALMACEN') load() }}
+      />
 
-        <CreateProductModal
-          open={openCreatePT}
-          onClose={()=>setOpenCreatePT(false)}
-          onDone={()=>{ /* si quieres, recarga catálogos */ }}
-        />
+      <CreateProductModal
+        open={openCreatePT}
+        onClose={()=>setOpenCreatePT(false)}
+        onDone={()=>{ /* opcional: recargar productos */ }}
+      />
 
-        <CompositionModal
-          open={openComp}
-          onClose={()=>setOpenComp(false)}
-          productId={productForComp}
-          onDone={()=>{ /* opcional: feedback */ }}
-        />
+      {/* Selector de producto SIN composición */}
+      <PickProductForCompModal
+        open={openPickComp}
+        onClose={()=>setOpenPickComp(false)}
+        onPicked={(pid) => {
+          setOpenPickComp(false)
+          setProductForComp(pid)
+          setOpenComp(true)
+        }}
+      />
+
+      {/* Editor de Composición (ya permite múltiples MP con “+ Agregar MP”) */}
+      <CompositionModal
+        open={openComp}
+        onClose={()=>setOpenComp(false)}
+        productId={productForComp}
+        onDone={()=>{ /* ok */ }}
+      />
     </section>
   )
 }

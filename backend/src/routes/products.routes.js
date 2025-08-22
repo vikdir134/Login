@@ -3,15 +3,18 @@ import { Router } from 'express'
 import { authRequired } from '../middleware/auth.js'
 import { requireRole } from '../middleware/roles.js'
 import { upsertCompositionCtrl } from '../controllers/product-composition.controller.js'
-import { createProductCtrl, setCompositionCtrl } from '../controllers/products.controller.js'
+import { createProductCtrl, setCompositionCtrl, updateProductCompositionCtrl} from '../controllers/products.controller.js'
+import { listProductsWithoutCompositionCtrl, upsertProductCompositionCtrl} from '../controllers/products.controller.js'
 import { pool } from '../db.js'
 export const productsRouter = Router()
 
-productsRouter.put(
-  '/:id/composition',
+
+productsRouter.get('/without-composition', authRequired, listProductsWithoutCompositionCtrl)
+productsRouter.put('/:id/composition', authRequired, upsertProductCompositionCtrl)
+productsRouter.put('/:id/composition',
   authRequired,
   requireRole(['JEFE','ADMINISTRADOR','PRODUCCION']),
-  upsertCompositionCtrl
+  updateProductCompositionCtrl
 )
 
 productsRouter.get('/', async (_req, res) => {

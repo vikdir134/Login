@@ -40,7 +40,88 @@ export async function createOrderWithLines({ customerId, createdBy = null, lines
     conn.release()
   }
 }
+export async function setOrderStateByName(orderId, name) {
+  const stateId = await getStateIdByName(name)
+  if (!stateId) throw Object.assign(new Error('STATE_NOT_FOUND'), { code:'STATE_NOT_FOUND' })
+  const [r] = await pool.query('UPDATE ORDERS SET ID_STATE=? WHERE ID_ORDER=?', [stateId, orderId])
+  return r.affectedRows > 0
+}
+export async function getOrderTotals(orderId) {
+  // pedido
+  const [[op]] = await pool.query(
+    `SELECT IFNULL(SUM(PESO),0) pedido
+     FROM DESCRIPTION_ORDER WHERE ID_ORDER=?`, [orderId]
+  )
+  // entregado
+  const [[dl]] = await pool.query(
+    `SELECT IFNULL(SUM(dd.PESO),0) entregado
+     FROM ORDER_DELIVERY od
+     JOIN DESCRIPTION_DELIVERY dd ON dd.ID_ORDER_DELIVERY = od.ID_ORDER_DELIVERY
+     WHERE od.ID_ORDER=?`, [orderId]
+  )
+  return { pedido: Number(op?.pedido || 0), entregado: Number(dl?.entregado || 0) }
+}
+export async function recomputeAndSetOrderState(orderId) {
+  // verificar que exista
+  const [[o]] = await pool.query('SELECT ID_ORDER FROM ORDERS WHERE ID_ORDER=? LIMIT 1', [orderId])
+  if (!o) return false
 
+  const { pedido, entregado } = await getOrderTotals(orderId)
+  let target = 'PENDIENTE'
+  if (pedido > 0 && Math.abs(entregado - pedido) < 1e-9) target = 'ENTREGADO'
+  else if (entregado > 0 && entregado < pedido) target = 'EN_PROCESO'
+  else if (pedido === 0 && entregado === 0) target = 'PENDIENTE'
+
+  await setOrderStateByName(orderId, target)
+  return true
+}
+export async function addOrderLine(orderId, { productId, peso, presentacion }) {
+  // existe pedido?
+  const [[o]] = await pool.query('SELECT ID_ORDER FROM ORDERS WHERE ID_ORDER=? LIMIT 1', [orderId])
+  if (!o) { const err = new Error('ORDER_NOT_FOUND'); err.code='ORDER_NOT_FOUND'; throw err }
+
+  const [r] = await pool.query(
+    `INSERT INTO DESCRIPTION_ORDER (ID_PRODUCT, ID_ORDER, PESO, PRESENTACION, OBSERVACION)
+     VALUES (?, ?, ?, ?, NULL)`,
+    [productId, orderId, peso, presentacion]
+  )
+  return r.insertId
+}
+export async function updateOrderLine(orderId, lineId, patch) {
+  const [[l]] = await pool.query(
+    `SELECT ID_DESCRIPTION_ORDER FROM DESCRIPTION_ORDER WHERE ID_DESCRIPTION_ORDER=? AND ID_ORDER=? LIMIT 1`,
+    [lineId, orderId]
+  )
+  if (!l) { const err=new Error('LINE_NOT_FOUND'); err.code='LINE_NOT_FOUND'; throw err }
+
+  const fields = []
+  const vals = []
+  if (patch.peso != null) { fields.push('PESO=?'); vals.push(Number(patch.peso)) }
+  if (patch.presentacion != null) { fields.push('PRESENTACION=?'); vals.push(Number(patch.presentacion)) }
+  if (!fields.length) return
+
+  vals.push(lineId)
+  await pool.query(`UPDATE DESCRIPTION_ORDER SET ${fields.join(', ')} WHERE ID_DESCRIPTION_ORDER=?`, vals)
+}
+
+export async function deleteOrderLine(orderId, lineId) {
+  const [[l]] = await pool.query(
+    `SELECT ID_DESCRIPTION_ORDER FROM DESCRIPTION_ORDER WHERE ID_DESCRIPTION_ORDER=? AND ID_ORDER=? LIMIT 1`,
+    [lineId, orderId]
+  )
+  if (!l) { const err=new Error('LINE_NOT_FOUND'); err.code='LINE_NOT_FOUND'; throw err }
+
+  await pool.query(`DELETE FROM DESCRIPTION_ORDER WHERE ID_DESCRIPTION_ORDER=?`, [lineId])
+}
+// entregado por línea
+export async function getDeliveredForLine(lineId) {
+  const [[r]] = await pool.query(
+    `SELECT IFNULL(SUM(dd.PESO),0) delivered
+     FROM DESCRIPTION_DELIVERY dd
+     WHERE dd.ID_DESCRIPTION_ORDER=?`, [lineId]
+  )
+  return Number(r?.delivered || 0)
+}
 export async function getOrderById(orderId) {
   // cabecera
   const [headRows] = await pool.query(
