@@ -1,7 +1,17 @@
 // src/routes/products.routes.js
 import { Router } from 'express'
+import { authRequired } from '../middleware/auth.js'
+import { requireRole } from '../middleware/roles.js'
+import { upsertCompositionCtrl } from '../controllers/product-composition.controller.js'
 import { pool } from '../db.js'
 export const productsRouter = Router()
+
+productsRouter.put(
+  '/:id/composition',
+  authRequired,
+  requireRole(['JEFE','ADMINISTRADOR','PRODUCCION']),
+  upsertCompositionCtrl
+)
 
 productsRouter.get('/', async (_req, res) => {
   const [rows] = await pool.query(`

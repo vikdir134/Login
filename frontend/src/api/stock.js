@@ -48,3 +48,19 @@ export function fetchPresentations(productId) {
 export function fetchPrimaryMaterialsLite(limit = 1000) {
   return api.get('/api/primary-materials', { params: { limit } }).then(r => r.data)
 }
+export async function deleteMerma(id) {
+  const { data } = await api.delete(`/api/stock/merma/${id}`)
+  return data
+}
+// DESCARTAR merma (por cantidad)
+export async function removeMerma(payload) {
+  // payload: { type: 'PRIMARY'|'FINISHED', itemId:number, qty:number, note?:string }
+  const { data } = await api.post('/api/stock/merma/remove', payload)
+  return data
+}
+export const fetchFinishedSummary = (params) =>
+  api.get('/api/stock/finished/summary', { params }).then(r => r.data)
+
+export const fetchFinishedByProduct = (productId) =>
+  api.get('/api/stock/finished/by-product', { params:{ productId } }).then(r => r.data)
+

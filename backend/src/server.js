@@ -26,6 +26,7 @@ import productPresentationsRouter from './routes/product-presentations.routes.js
 import mermaRouter from './routes/merma.routes.js'
 import { finishedInputRouter } from './routes/finished-input.routes.js'
 
+
 const app = express();
 app.use(cors({ origin: 'http://localhost:5173' }));
 app.use(express.json());
