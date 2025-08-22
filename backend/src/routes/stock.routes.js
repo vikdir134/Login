@@ -5,7 +5,7 @@ import { getFirstZoneByTipo } from '../lib/zones.js'
 export const stockRouter = Router()
 
 
-// ==== LISTAR MP POR ZONA (TIPO) ====
+// === LISTAR MP POR ZONA (TIPO) ===
 // GET /api/stock/primary?zone=RECEPCION|PRODUCCION&limit=30&offset=0&q=texto
 stockRouter.get('/primary', async (req, res) => {
   try {
@@ -13,36 +13,44 @@ stockRouter.get('/primary', async (req, res) => {
     if (!['RECEPCION','PRODUCCION'].includes(zoneTipo)) {
       return res.status(400).json({ error: 'zone debe ser RECEPCION o PRODUCCION' })
     }
-    const limit = Math.min(Number(req.query.limit) || 30, 100)
+    const limit  = Math.min(Number(req.query.limit) || 30, 100)
     const offset = Number(req.query.offset) || 0
-    const q = (req.query.q || '').trim()
+    const q      = (req.query.q || '').trim()
 
-    const params = []
     let whereQ = ''
+    const paramsLike = []
     if (q) {
-      whereQ = ` AND (pm.DESCRIPCION LIKE ? OR m.DESCRIPCION LIKE ? OR c.DESCRIPCION LIKE ?) `
-      params.push(`%${q}%`, `%${q}%`, `%${q}%`)
+      whereQ = `
+        AND (
+          LOWER(pm.DESCRIPCION) LIKE ?
+          OR LOWER(m.DESCRIPCION)  LIKE ?
+          OR LOWER(IFNULL(c.DESCRIPCION,'')) LIKE ?
+        )
+      `
+      const like = `%${q.toLowerCase()}%`
+      paramsLike.push(like, like, like)
     }
 
-    // total para paginación
+    // total para paginación (cuenta MPs con saldo > 0 en la zona)
     const [[{ total }]] = await pool.query(
       `
-      SELECT COUNT(*) AS total FROM (
+      SELECT COUNT(*) total FROM (
         SELECT pm.ID_PRIMATER
         FROM STOCK_ZONE sz
-        JOIN SPACES s   ON s.ID_SPACE = sz.ID_SPACE AND s.TIPO=?
+        JOIN SPACES s   ON s.ID_SPACE = sz.ID_SPACE AND s.TIPO = ?
         JOIN PRIMARY_MATERIALS pm ON pm.ID_PRIMATER = sz.ID_PRIMATER
         JOIN MATERIALS m ON m.ID_MATERIAL = pm.ID_MATERIAL
         LEFT JOIN COLORS c ON c.ID_COLOR = pm.ID_COLOR
+        WHERE 1=1
         ${whereQ}
         GROUP BY pm.ID_PRIMATER
         HAVING SUM(sz.PESO) > 0
       ) t
       `,
-      [zoneTipo, ...params]
+      [zoneTipo, ...paramsLike]
     )
 
-    // lista con DENIER y última actualización
+    // filas (con denier y última actualización)
     const [rows] = await pool.query(
       `
       SELECT
@@ -54,25 +62,27 @@ stockRouter.get('/primary', async (req, res) => {
         ROUND(SUM(sz.PESO), 2)   AS stockKg,
         MAX(sz.FECHA)            AS lastUpdate
       FROM STOCK_ZONE sz
-      JOIN SPACES s   ON s.ID_SPACE = sz.ID_SPACE AND s.TIPO=?
+      JOIN SPACES s   ON s.ID_SPACE = sz.ID_SPACE AND s.TIPO = ?
       JOIN PRIMARY_MATERIALS pm ON pm.ID_PRIMATER = sz.ID_PRIMATER
       JOIN MATERIALS m ON m.ID_MATERIAL = pm.ID_MATERIAL
       LEFT JOIN COLORS c ON c.ID_COLOR = pm.ID_COLOR
+      WHERE 1=1
       ${whereQ}
       GROUP BY pm.ID_PRIMATER, m.DESCRIPCION, c.DESCRIPCION, pm.DESCRIPCION, pm.DENIER
       HAVING SUM(sz.PESO) > 0
-      ORDER BY material ASC, color ASC
+      ORDER BY m.DESCRIPCION ASC, c.DESCRIPCION ASC
       LIMIT ? OFFSET ?
       `,
-      [zoneTipo, ...params, limit, offset]
+      [zoneTipo, ...paramsLike, limit, offset]
     )
 
-    res.json({ items: rows, total })
+    res.json({ items: rows, total: Number(total || 0) })
   } catch (e) {
     console.error(e)
     res.status(500).json({ error: 'Error listando stock MP' })
   }
 })
+
 /* GET /api/stock/finished/summary?q=&limit=&offset=
 stockRouter.get('/finished/summary', async (req, res) => {
   try {

@@ -13,6 +13,9 @@ import MoveMPModal from '../components/MoveMPModal'
 import AddMermaModal from '../components/AddMermaModal'
 import ExtrasModal from '../components/ExtrasModal'
 import RemoveMermaModal from '../components/RemoveMermaModal'
+import CreatePrimaryMaterialModal from '../components/CreatePrimaryMaterialModal'
+import CreateProductModal from '../components/CreateProductModal'
+import CompositionModal from '../components/CompositionModal'
 
 const fmtKg   = (v) => (Number.isFinite(Number(v)) ? Number(v).toFixed(2) : '0.00')
 const fmtDate = (s) => (s ? new Date(s).toLocaleString() : '—')
@@ -52,6 +55,10 @@ export default function Almacen() {
   const [openExtras, setOpenExtras] = useState(false)
   const [openRemoveMerma, setOpenRemoveMerma] = useState(false)
   const [rowToRemove, setRowToRemove] = useState(null)
+  const [openCreateMP, setOpenCreateMP] = useState(false)
+  const [openCreatePT, setOpenCreatePT] = useState(false)
+  const [openComp, setOpenComp] = useState(false)
+  const [productForComp, setProductForComp] = useState(null)
 
   // (opcionales futuros)
   // const [openCreateMP, setOpenCreateMP] = useState(false)
@@ -160,12 +167,17 @@ export default function Almacen() {
         {tab === 'ALMACEN' && (
           <>
             {puedePT && <button className="btn" onClick={()=>setOpenPT(true)}>+ Producto Terminado</button>}
-            <button className="btn-secondary" onClick={()=>setOpenExtras(true)}>Extras</button>
-            {/* Opcionales:
             <button className="btn-secondary" onClick={()=>setOpenCreateMP(true)}>Crear MP</button>
             <button className="btn-secondary" onClick={()=>setOpenCreatePT(true)}>Crear PT</button>
-            <button className="btn-secondary" onClick={()=>setOpenComp(true)}>Composición</button>
-            */}
+            <button
+              className="btn-secondary"
+              disabled={!productForComp}
+              title={productForComp ? '' : 'Abre un producto (Ver) para editar su composición'}
+              onClick={()=>setOpenComp(true)}
+            >
+              Composición
+            </button>
+            <button className="btn-secondary" onClick={()=>setOpenExtras(true)}>Extras</button>
           </>
         )}
 
@@ -328,11 +340,24 @@ export default function Almacen() {
         onDone={load}
       />
 
-      {/* (opcionales)
-      <CreatePrimaryMaterialModal open={openCreateMP} onClose={()=>setOpenCreateMP(false)} onDone={load} />
-      <CreateProductModal        open={openCreatePT} onClose={()=>setOpenCreatePT(false)} onDone={load} />
-      <CompositionModal          open={openComp} onClose={()=>setOpenComp(false)} productId={productForComp} onDone={load} />
-      */}
+              <CreatePrimaryMaterialModal
+          open={openCreateMP}
+          onClose={()=>setOpenCreateMP(false)}
+          onDone={()=>{ if (tab !== 'ALMACEN') load() }}
+        />
+
+        <CreateProductModal
+          open={openCreatePT}
+          onClose={()=>setOpenCreatePT(false)}
+          onDone={()=>{ /* si quieres, recarga catálogos */ }}
+        />
+
+        <CompositionModal
+          open={openComp}
+          onClose={()=>setOpenComp(false)}
+          productId={productForComp}
+          onDone={()=>{ /* opcional: feedback */ }}
+        />
     </section>
   )
 }

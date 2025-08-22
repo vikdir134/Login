@@ -3,6 +3,7 @@ import { Router } from 'express'
 import { authRequired } from '../middleware/auth.js'
 import { requireRole } from '../middleware/roles.js'
 import { upsertCompositionCtrl } from '../controllers/product-composition.controller.js'
+import { createProductCtrl, setCompositionCtrl } from '../controllers/products.controller.js'
 import { pool } from '../db.js'
 export const productsRouter = Router()
 
@@ -20,7 +21,18 @@ productsRouter.get('/', async (_req, res) => {
   `)
   res.json(rows)
 })
-
+productsRouter.post(
+  '/',
+  authRequired,
+  requireRole(['JEFE','ADMINISTRADOR']),
+  createProductCtrl
+)
+productsRouter.put(
+  '/:id/composition',
+  authRequired,
+  requireRole(['JEFE','ADMINISTRADOR','PRODUCCION']),
+  setCompositionCtrl
+)
 productsRouter.post('/', async (req, res) => {
   const { tipoProducto, diameter, descripcion } = req.body
   if (!tipoProducto || !diameter || !descripcion) {
@@ -62,3 +74,4 @@ productsRouter.post('/:id/composition', async (req, res) => {
     conn.release()
   }
 })
+export default productsRouter
