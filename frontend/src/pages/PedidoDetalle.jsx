@@ -182,6 +182,21 @@ export default function PedidoDetalle() {
       showToast('error', err.response?.data?.error || 'Error reactivando pedido')
     }
   }
+  const onRefreshState = async () => {
+  try {
+    if (String(order.state).toUpperCase() === 'CANCELADO') {
+      await reactivateOrder(Number(id))
+    } else {
+      await cancelOrder(Number(id))
+      await reactivateOrder(Number(id))
+    }
+    await load()
+    showToast('success', 'Estado recalculado según entregas y líneas')
+  } catch (err) {
+    console.error(err)
+    showToast('error', err.response?.data?.error || 'No se pudo recalcular el estado')
+  }
+}
 
   // ====== entregas ======
   const handleSubmitDelivery = async ({ descriptionOrderId, peso, facturaId, descripcion }) => {
@@ -221,17 +236,24 @@ export default function PedidoDetalle() {
         </div>
       )}
 
-      <div className="topbar">
-        <h3 style={{ margin:0 }}>Pedido #{order.id}</h3>
-        <div className={badgeClass(order.state)}>{order.state}</div>
-        <div style={{ flex:1 }} />
-        {puedeEstado && !isCancelado && (
-          <button className="btn-secondary" onClick={()=>setAskCancel(true)}>Cancelar pedido</button>
-        )}
-        {puedeEstado && isCancelado && (
-          <button className="btn" onClick={onReactivate}>Reactivar</button>
-        )}
-      </div>
+        <div className="topbar">
+          <h3 style={{ margin:0 }}>Pedido #{order.id}</h3>
+          <div className={badgeClass(order.state)}>{order.state}</div>
+          <div style={{ flex:1 }} />
+          {puedeEstado && (
+            <>
+              {/* Recalcular/actualizar estado siempre visible para roles permitidos */}
+              <button className="btn-secondary" onClick={onRefreshState}>Actualizar estado</button>
+
+              {!isCancelado && (
+                <button className="btn-secondary" onClick={()=>setAskCancel(true)}>Cancelar pedido</button>
+              )}
+              {isCancelado && (
+                <button className="btn" onClick={onReactivate}>Reactivar</button>
+              )}
+            </>
+          )}
+        </div>
 
       <div className="muted">
         {order.customerName} · {new Date(order.fecha).toLocaleString()}
