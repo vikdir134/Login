@@ -78,3 +78,28 @@ productsRouter.post('/:id/composition', async (req, res) => {
   }
 })
 export default productsRouter
+// GET /api/products/:id/composition
+productsRouter.get('/:id/composition', async (req, res) => {
+  try {
+    const productId = Number(req.params.id || 0)
+    if (!productId) return res.status(400).json({ error: 'productId inválido' })
+
+    const [rows] = await pool.query(
+      `
+      SELECT
+        pc.ID_PRIMATER     AS primaterId,
+        pc.ZONE            AS zone,        -- 'RECEPCION' | 'PRODUCCION' | 'ALMACEN' (normalmente PRODUCCION)
+        pc.PERCENTAGE      AS percentage   -- 0..100
+      FROM PRODUCT_COMPOSITION pc
+      WHERE pc.ID_PRODUCT = ?
+      ORDER BY pc.ID_PRIMATER ASC
+      `,
+      [productId]
+    )
+    // Nunca 404: si no hay filas, []
+    res.json(rows || [])
+  } catch (e) {
+    console.error(e)
+    res.status(500).json({ error: 'Error obteniendo composición' })
+  }
+})

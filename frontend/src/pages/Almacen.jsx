@@ -315,21 +315,25 @@ export default function Almacen() {
                           <div className="muted" style={{ marginBottom:8 }}>
                             Presentaciones de <strong>{r.productName}</strong>
                           </div>
+
                           <div className="table">
-                            <div className="table__head" style={{ gridTemplateColumns:'1fr 1fr' }}>
+                            <div className="table__head" style={{ gridTemplateColumns:'2fr 1fr' }}>
                               <div>Presentación</div>
                               <div>Stock (kg)</div>
                             </div>
-                            {ptDetailRows.map((p, idx) => (
+
+                             {ptDetailRows.map((p, idx) => (
                               <div
                                 className="table__row"
-                                key={`${pid}-${p.presentationId ?? 'NA'}-${idx}`}
-                                style={{ gridTemplateColumns:'1fr 1fr' }}
+                                key={`${pid}-${(p.presentacion ?? 'NULL')}-${idx}`}
+                                style={{ gridTemplateColumns:'2fr 1fr' }}
                               >
-                                <div>{p.presentationKg ? `${fmtKg(p.presentationKg)} kg` : '—'}</div>
-                                <div>{fmtKg(p.stockKg)}</div>
+                                {/* backend ahora manda `presentacion` (texto) */}
+                                <div>{p.presentacion ?? '—'} Kg</div>
+                                <div>{fmtKg(p.stockKg)} Kg</div>
                               </div>
                             ))}
+
                             {ptDetailRows.length === 0 && (
                               <div className="muted">Sin presentaciones con stock</div>
                             )}
@@ -338,6 +342,7 @@ export default function Almacen() {
                       )}
                     </div>
                   )}
+
                 </div>
               )
             })}

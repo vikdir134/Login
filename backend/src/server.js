@@ -25,7 +25,7 @@ import catalogRouter from './routes/catalog.routes.js'
 import productPresentationsRouter from './routes/product-presentations.routes.js'
 import mermaRouter from './routes/merma.routes.js'
 import { finishedInputRouter } from './routes/finished-input.routes.js'
-
+import pricesRouter from './routes/prices.routes.js'
 
 const app = express();
 app.use(cors({ origin: 'http://localhost:5173' }));
@@ -47,13 +47,25 @@ app.use('/api/materials', materialsRouter)
 app.use('/api/primary-materials', primaryMaterialsRouter)
 app.use('/api/products', productsRouter)
 app.use('/api/stock', stockRouter)
-app.use('/api', deliveriesRouter)
+app.use('/api/deliveries', deliveriesRouter)
 app.use('/api', catalogRouter)
 app.use('/api/almacen', almacenRouter)
 app.use('/api/stock/finished', finishedInputRouter)
 app.use('/api', presentationsRouter)
 app.use('/api', productPresentationsRouter)
 app.use('/api', mermaRouter)
+app.use('/api/prices', pricesRouter)
+// al final de tu configuración de Express
+app.use((err, req, res, next) => {
+  console.error('[GLOBAL ERROR]', err)
+  const isDev = process.env.NODE_ENV !== 'production'
+  res.status(err.status || 500).json({
+    error: err.publicMessage || 'Error del servidor',
+    code: err.code || 'UNHANDLED',
+    ...(isDev ? { message: err.message, stack: err.stack } : {})
+  })
+})
+
 
 // Ejemplo protegido
 app.get('/api/secure/hello', authRequired, (req, res) => {

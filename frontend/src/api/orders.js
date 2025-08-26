@@ -35,3 +35,5 @@ export const cancelOrder = (orderId) =>
 // NUEVO: reactivar pedido (el backend recalcula estado: PENDIENTE/EN_PROCESO/ENTREGADO)
 export const reactivateOrder = (orderId) =>
   api.post(`/api/orders/${orderId}/reactivate`).then(r=>r.data)
+export const listOrdersInProcess = (params={}) =>
+  api.get('/api/orders/in-process', { params }).then(r=>r.data)

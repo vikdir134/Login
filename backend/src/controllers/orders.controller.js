@@ -1,18 +1,24 @@
 // src/controllers/orders.controller.js
 import { z } from 'zod'
-import {
-  createOrderWithLines,
-  getOrderById,
-  listOrders,
-  updateOrderState,recomputeAndSetOrderState, setOrderStateByName
-} from '../models/orders.model.js'
+import {createOrderWithLines,getOrderById,listOrders,updateOrderState,recomputeAndSetOrderState, setOrderStateByName,listOrdersInProcess} from '../models/orders.model.js'
 
 const lineSchema = z.object({
   productId: z.number().int().positive(),
   peso: z.number().positive(),
   presentacion: z.number().positive()
 })
-
+export async function listOrdersInProcessCtrl(req, res) {
+  try {
+    const q = (req.query.q || '').trim()
+    const limit = Math.min(Number(req.query.limit) || 50, 200)
+    const offset = Math.max(Number(req.query.offset) || 0, 0)
+    const data = await listOrdersInProcess({ q, limit, offset })
+    res.json(data)
+  } catch (e) {
+    console.error(e)
+    res.status(500).json({ error: 'Error listando pedidos en proceso' })
+  }
+}
 export async function createOrder(req, res) {
   try {
     const schema = z.object({
@@ -36,8 +42,11 @@ export async function createOrder(req, res) {
 
 export async function getOrder(req, res) {
   try {
-    const { id } = req.params
-    const order = await getOrderById(Number(id))
+    const id = Number(req.params.id)
+    if (!Number.isFinite(id) || id <= 0) {
+      return res.status(400).json({ error: 'ID de pedido inválido' })
+    }
+    const order = await getOrderById(id)
     if (!order) return res.status(404).json({ error: 'Pedido no encontrado' })
     res.json(order)
   } catch (e) {

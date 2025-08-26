@@ -9,13 +9,17 @@ const r = Router()
 r.get('/spaces', authRequired, almacen.listSpaces)
 
 // ==== PRODUCTO TERMINADO ====
-// stock agregados por producto + zona
+// stock agregados por producto + zona (compatibilidad con front actual)
 r.get('/pt/stock', authRequired, almacen.listPtStock)
 
-// ingresar PT a una zona (ej: PT_ALMACEN)
+// NUEVO: overview → totales por producto + detalle por presentación
+r.get('/pt/stock/overview', authRequired, almacen.listPtStockOverview)
+
+// ingresar PT a una zona (ej: PT_ALMACEN); acepta presentationId (opcional)
 r.post('/pt/ingreso', authRequired, almacen.ptIngreso)
 
-// traslado PT entre zonas
+// traslado PT entre zonas; acepta presentationId (opcional)
+// si se especifica, valida stock y traslada solo esa presentación
 r.post('/pt/traslado', authRequired, almacen.ptTraslado)
 
 // borrar movimiento PT solo si es en MERMA (regla negocio)

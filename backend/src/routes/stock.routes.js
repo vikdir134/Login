@@ -141,32 +141,24 @@ stockRouter.get('/finished/summary', async (req, res) => {
   }
 })*/
 // GET /api/stock/finished/by-product?productId=123
+// === DETALLE PT POR PRODUCTO (presentaciones) ===
+// GET /api/stock/finished/by-product?productId=123
 stockRouter.get('/finished/by-product', async (req, res) => {
   try {
-    const productId = Number(req.query.productId)
+    const productId = Number(req.query.productId || 0)
     if (!productId) return res.status(400).json({ error: 'productId requerido' })
 
     const [rows] = await pool.query(
       `
       SELECT
-        sfp.ID_PRODUCT                         AS productId,
-        p.DESCRIPCION                          AS productName,
-        IFNULL(sfp.ID_PRESENTATION, NULL)      AS presentationId,
-        -- compliant con ONLY_FULL_GROUP_BY: usa agregados
-        COALESCE(MAX(pp.PESO_KG), MAX(sfp.PRESENTATION_KG)) AS presentationKg,
-        ROUND(SUM(sfp.PESO), 2)                AS stockKg
+        sfp.PRESENTACION         AS presentacion,       -- texto (NULL = sin presentación)
+        ROUND(SUM(sfp.PESO),2)   AS stockKg
       FROM STOCK_FINISHED_PRODUCT sfp
       JOIN SPACES s ON s.ID_SPACE = sfp.ID_SPACE AND s.TIPO='ALMACEN'
-      JOIN PRODUCTS p ON p.ID_PRODUCT = sfp.ID_PRODUCT
-      LEFT JOIN PRODUCT_PRESENTATIONS pp
-        ON pp.ID_PRESENTATION = sfp.ID_PRESENTATION
       WHERE sfp.ID_PRODUCT = ?
-      GROUP BY
-        sfp.ID_PRODUCT,
-        p.DESCRIPCION,
-        IFNULL(sfp.ID_PRESENTATION, NULL)
+      GROUP BY sfp.PRESENTACION
       HAVING SUM(sfp.PESO) > 0
-      ORDER BY presentationKg ASC
+      ORDER BY COALESCE(sfp.PRESENTACION,'') ASC
       `,
       [productId]
     )
@@ -174,9 +166,10 @@ stockRouter.get('/finished/by-product', async (req, res) => {
     res.json(rows)
   } catch (e) {
     console.error(e)
-    res.status(500).json({ error: 'Error listando PT por presentaciones' })
+    res.status(500).json({ error: 'Error listando presentaciones del producto' })
   }
 })
+
 
 
 // Listar stock de Producto Terminado en ALMACEN, agregado por producto+presentación

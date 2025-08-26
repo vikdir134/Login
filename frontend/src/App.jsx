@@ -16,14 +16,13 @@ import Compras from './pages/Compras'
 import DefaultByRole from './components/DefaultByRole' // nuevo (abajo)
 import ClienteDetalle from './pages/ClienteDetalle'
 import PedidoDetalle from './pages/PedidoDetalle'
-
+import PedidosProceso from './pages/PedidosProceso'
+import EntregaDetalle from './pages/EntregaDetalle'
 
 export default function App() {
   return (
     <Routes>
-      <Route path="/login" element={<Login />} />
-
-      <Route
+      <Route path="/login" element={<Login />} /><Route
         path="/app"
         element={
           <ProtectedRoute>
@@ -70,7 +69,13 @@ export default function App() {
         <Route path="entregas" element={
           <RequireRole roles={['ALMACENERO','PRODUCCION','JEFE','ADMINISTRADOR']}><Entregas /></RequireRole>
         } />
-
+        {/* NUEVO: flujo de entregas */}
+        <Route path="entregas/nueva" element={
+          <RequireRole roles={['PRODUCCION','JEFE','ADMINISTRADOR']}><PedidosProceso /></RequireRole>
+        } />
+        <Route path="entregas/orden/:id" element={
+          <RequireRole roles={['ALMACENERO','PRODUCCION','JEFE','ADMINISTRADOR']}><EntregaDetalle /></RequireRole>
+        } />
         {/* Solo ADMIN registra usuarios */}
         <Route path="registro-usuarios" element={
           <RequireRole roles={['ADMINISTRADOR']}><RegistroUsuarios /></RequireRole>

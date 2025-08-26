@@ -254,3 +254,42 @@ export async function markOrderDeliveredIfComplete(orderId) {
     await updateOrderState(orderId, 'EN_PROCESO')
   }
 }
+export async function listOrdersInProcess({ q, limit = 50, offset = 0 }) {
+  const params = []
+  let where = ` WHERE s.DESCRIPCION = 'EN_PROCESO' `
+  if (q) {
+    where += ' AND (c.RAZON_SOCIAL LIKE ? OR p.DESCRIPCION LIKE ?)'
+    params.push(`%${q}%`, `%${q}%`)
+  }
+
+  const [[{ total }]] = await pool.query(
+    `
+    SELECT COUNT(*) total
+    FROM ORDERS o
+    JOIN STATES s ON s.ID_STATE = o.ID_STATE
+    JOIN CUSTOMERS c ON c.ID_CUSTOMER = o.ID_CUSTOMER
+    LEFT JOIN DESCRIPTION_ORDER do2 ON do2.ID_ORDER = o.ID_ORDER
+    LEFT JOIN PRODUCTS p ON p.ID_PRODUCT = do2.ID_PRODUCT
+    ${where}
+    `, params
+  )
+
+  const [rows] = await pool.query(
+    `
+    SELECT
+      o.ID_ORDER         AS id,
+      o.FECHA            AS fecha,
+      c.RAZON_SOCIAL     AS customerName,
+      s.DESCRIPCION      AS state
+    FROM ORDERS o
+    JOIN STATES s ON s.ID_STATE = o.ID_STATE
+    JOIN CUSTOMERS c ON c.ID_CUSTOMER = o.ID_CUSTOMER
+    ${where}
+    ORDER BY o.FECHA DESC, o.ID_ORDER DESC
+    LIMIT ? OFFSET ?
+    `,
+    [...params, Number(limit), Number(offset)]
+  )
+
+  return { items: rows, total: Number(total || 0) }
+}

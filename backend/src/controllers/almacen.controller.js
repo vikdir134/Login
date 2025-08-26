@@ -14,7 +14,19 @@ async function sumPtStock(productId, spaceId) {
       WHERE ID_PRODUCT = ? AND ID_SPACE = ?`,
     [productId, spaceId]
   )
-  return Number(rows[0].qty || 0)
+  return Number(rows[0]?.qty || 0)
+}
+async function sumPtStockByPresentacion(productId, spaceId, presentacion) {
+  // presentacion puede ser null -> cuenta solo “sin presentación”
+  const [rows] = await pool.query(
+    `SELECT IFNULL(SUM(PESO),0) AS qty
+       FROM STOCK_FINISHED_PRODUCT
+      WHERE ID_PRODUCT = ?
+        AND ID_SPACE   = ?
+        AND (PRESENTACION <=> ?)`, // null-safe
+    [productId, spaceId, presentacion ?? null]
+  )
+  return Number(rows[0]?.qty || 0)
 }
 async function sumMpStock(primaterId, spaceId) {
   const [rows] = await pool.query(
@@ -23,7 +35,7 @@ async function sumMpStock(primaterId, spaceId) {
       WHERE ID_PRIMATER = ? AND ID_SPACE = ?`,
     [primaterId, spaceId]
   )
-  return Number(rows[0].qty || 0)
+  return Number(rows[0]?.qty || 0)
 }
 function isMermaSpaceName(name) {
   return String(name || '').toUpperCase().includes('MERMA')
@@ -33,6 +45,7 @@ function isMermaSpaceName(name) {
 const ingresoPtSchema = z.object({
   productId: z.number().int().positive(),
   spaceName: z.string().min(2),         // p.e. 'PT_ALMACEN'
+  presentacion: z.string().max(80).optional().nullable(), // <- TEXTO
   peso: z.number().positive(),
   observacion: z.string().max(100).optional().nullable()
 })
@@ -40,6 +53,7 @@ const trasladoPtSchema = z.object({
   productId: z.number().int().positive(),
   fromSpaceName: z.string().min(2),
   toSpaceName: z.string().min(2),
+  presentacion: z.string().max(80).optional().nullable(), // <- TEXTO
   peso: z.number().positive(),
   observacion: z.string().max(100).optional().nullable()
 })
@@ -64,63 +78,103 @@ export async function listSpaces(_req, res) {
 }
 
 // =============== PT LIST/INGRESO/TRASLADO/DELETE ===============
+/**
+ * Stock PT agrupado por producto + zona + presentación (texto; null = sin presentación)
+ */
 export async function listPtStock(_req, res) {
   const [rows] = await pool.query(
     `SELECT p.ID_PRODUCT AS productId, p.DESCRIPCION AS productName,
             s.ID_SPACE AS spaceId, s.NOMBRE AS spaceName,
+            f.PRESENTACION,
             IFNULL(SUM(f.PESO),0) AS qty
        FROM STOCK_FINISHED_PRODUCT f
        JOIN PRODUCTS p ON p.ID_PRODUCT = f.ID_PRODUCT
        JOIN SPACES   s ON s.ID_SPACE   = f.ID_SPACE
-      GROUP BY p.ID_PRODUCT, s.ID_SPACE
+      GROUP BY p.ID_PRODUCT, s.ID_SPACE, f.PRESENTACION
       HAVING qty <> 0
-      ORDER BY p.DESCRIPCION, s.NOMBRE`
+      ORDER BY p.DESCRIPCION, s.NOMBRE, COALESCE(f.PRESENTACION,'')`
   )
   res.json(rows)
+}
+
+/**
+ * (Opcional) Overview: totales por producto y desglose por presentación
+ */
+export async function listPtStockOverview(_req, res) {
+  try {
+    const [tot] = await pool.query(
+      `SELECT p.ID_PRODUCT AS productId,
+              p.DESCRIPCION AS productName,
+              IFNULL(SUM(f.PESO),0) AS totalKg
+         FROM STOCK_FINISHED_PRODUCT f
+         JOIN PRODUCTS p ON p.ID_PRODUCT = f.ID_PRODUCT
+        GROUP BY p.ID_PRODUCT, p.DESCRIPCION
+        ORDER BY p.DESCRIPCION`
+    )
+    const [byPres] = await pool.query(
+      `SELECT f.ID_PRODUCT AS productId,
+              f.PRESENTACION,
+              IFNULL(SUM(f.PESO),0) AS kg
+         FROM STOCK_FINISHED_PRODUCT f
+        GROUP BY f.ID_PRODUCT, f.PRESENTACION`
+    )
+    res.json({ totals: tot, byPresentation: byPres })
+  } catch (e) {
+    console.error(e)
+    res.status(500).json({ error: 'Error listando stock PT (overview)' })
+  }
 }
 
 export async function ptIngreso(req, res) {
   const parsed = ingresoPtSchema.safeParse(req.body)
   if (!parsed.success) return res.status(400).json({ error: parsed.error.errors[0].message })
-  const { productId, spaceName, peso, observacion } = parsed.data
+
+  const { productId, spaceName, presentacion, peso } = parsed.data
   const spaceId = await getSpaceIdByName(spaceName)
   if (!spaceId) return res.status(400).json({ error: 'Zona no existe' })
 
   await pool.query(
-    `INSERT INTO STOCK_FINISHED_PRODUCT (ID_PRODUCT, ID_SPACE, PESO, FECHA)
-     VALUES (?, ?, ?, NOW())`,
-    [productId, spaceId, peso]
+    `INSERT INTO STOCK_FINISHED_PRODUCT (ID_PRODUCT, ID_SPACE, PRESENTACION, PESO, FECHA)
+     VALUES (?, ?, ?, ?, NOW())`,
+    [productId, spaceId, presentacion ?? null, peso]
   )
-  // OBSERVACION no existe en esta tabla; si quieres guardarla, añade columna o ignórala.
   res.status(201).json({ ok: true })
 }
 
 export async function ptTraslado(req, res) {
   const parsed = trasladoPtSchema.safeParse(req.body)
   if (!parsed.success) return res.status(400).json({ error: parsed.error.errors[0].message })
-  const { productId, fromSpaceName, toSpaceName, peso } = parsed.data
+
+  const { productId, fromSpaceName, toSpaceName, presentacion, peso, observacion } = parsed.data
   const fromId = await getSpaceIdByName(fromSpaceName)
   const toId   = await getSpaceIdByName(toSpaceName)
   if (!fromId || !toId) return res.status(400).json({ error: 'Zona origen/destino inválida' })
 
-  // valida stock suficiente en origen
-  const disponible = await sumPtStock(productId, fromId)
-  if (disponible + 1e-9 < peso) {
-    return res.status(400).json({ error: `Stock insuficiente en ${fromSpaceName}. Disponible: ${disponible}` })
+  // disponible por producto + zona + PRESENTACION (texto; null = “sin presentación”)
+  const disponible = presentacion != null
+    ? await sumPtStockByPresentacion(productId, fromId, presentacion)
+    : await sumPtStock(productId, fromId)
+
+  if (disponible + 1e-9 < Number(peso)) {
+    return res.status(400).json({
+      error: `Stock insuficiente en ${fromSpaceName} para la presentación "${presentacion ?? '—'}". Disponible: ${disponible}`
+    })
   }
 
   const conn = await pool.getConnection()
   try {
     await conn.beginTransaction()
+    // salida
     await conn.query(
-      `INSERT INTO STOCK_FINISHED_PRODUCT (ID_PRODUCT, ID_SPACE, PESO, FECHA)
-       VALUES (?, ?, ?, NOW())`,
-      [productId, fromId, -peso]   // salida
+      `INSERT INTO STOCK_FINISHED_PRODUCT (ID_PRODUCT, ID_SPACE, PRESENTACION, PESO, FECHA)
+       VALUES (?, ?, ?, ?, NOW())`,
+      [productId, fromId, presentacion ?? null, -Number(peso)]
     )
+    // entrada
     await conn.query(
-      `INSERT INTO STOCK_FINISHED_PRODUCT (ID_PRODUCT, ID_SPACE, PESO, FECHA)
-       VALUES (?, ?, ?, NOW())`,
-      [productId, toId, peso]      // entrada
+      `INSERT INTO STOCK_FINISHED_PRODUCT (ID_PRODUCT, ID_SPACE, PRESENTACION, PESO, FECHA)
+       VALUES (?, ?, ?, ?, NOW())`,
+      [productId, toId, presentacion ?? null, Number(peso)]
     )
     await conn.commit()
     res.json({ ok: true })
