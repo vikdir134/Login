@@ -1,6 +1,6 @@
 // src/pages/PedidoDetalle.jsx
 import { useEffect, useMemo, useState } from 'react'
-import { useParams } from 'react-router-dom'
+import { useParams, useNavigate } from 'react-router-dom'
 import { fetchOrder } from '../api/orders'
 import {
   addOrderLine,
@@ -9,9 +9,8 @@ import {
   cancelOrder,
   reactivateOrder
 } from '../api/orders'
-import { fetchDeliveriesByOrder, createDelivery } from '../api/deliveries'
+import { fetchDeliveriesByOrder } from '../api/deliveries'
 import { hasRole, getUserFromToken } from '../utils/auth'
-import DeliveryModal from '../components/DeliveryModal'
 import api from '../api/axios'
 
 const badgeClass = (state) => {
@@ -23,9 +22,12 @@ const badgeClass = (state) => {
     default:            return 'badge'
   }
 }
+const fmtKg = n => (Number(n) || 0).toFixed(2)
+const fmtMoney = n => (Number(n) || 0).toFixed(2)
 
 export default function PedidoDetalle() {
   const { id } = useParams()
+  const navigate = useNavigate()
   const me = getUserFromToken()
   const puedeEntregar = hasRole(me,'PRODUCCION') || hasRole(me,'JEFE') || hasRole(me,'ADMINISTRADOR')
   const puedeEditar   = hasRole(me,'PRODUCCION') || hasRole(me,'JEFE') || hasRole(me,'ADMINISTRADOR')
@@ -46,9 +48,6 @@ export default function PedidoDetalle() {
   const [editLineId, setEditLineId] = useState(null)
   const [editForm, setEditForm] = useState({ peso:'', presentacion:'' })
 
-  // Modal entrega
-  const [openModal, setOpenModal] = useState(false)
-
   // Modal de confirmación (Cancelar pedido)
   const [askCancel, setAskCancel] = useState(false)
 
@@ -68,7 +67,7 @@ export default function PedidoDetalle() {
         api.get('/api/catalog/products?limit=1000').then(r => r.data).catch(()=>[])
       ])
       setOrder(o)
-      setDeliveries(d)
+      setDeliveries(Array.isArray(d) ? d : [])
       setProducts(Array.isArray(p) ? p : [])
     } catch (e) {
       console.error(e)
@@ -148,7 +147,6 @@ export default function PedidoDetalle() {
     }
   }
   const removeLine = async (lineId) => {
-    // puedes cambiar esto a un modal también si quieres
     if (!window.confirm('¿Eliminar esta línea?')) return
     try {
       await deleteOrderLine(Number(id), Number(lineId))
@@ -183,36 +181,61 @@ export default function PedidoDetalle() {
     }
   }
   const onRefreshState = async () => {
-  try {
-    if (String(order.state).toUpperCase() === 'CANCELADO') {
-      await reactivateOrder(Number(id))
-    } else {
-      await cancelOrder(Number(id))
-      await reactivateOrder(Number(id))
-    }
-    await load()
-    showToast('success', 'Estado recalculado según entregas y líneas')
-  } catch (err) {
-    console.error(err)
-    showToast('error', err.response?.data?.error || 'No se pudo recalcular el estado')
-  }
-}
-
-  // ====== entregas ======
-  const handleSubmitDelivery = async ({ descriptionOrderId, peso, facturaId, descripcion }) => {
     try {
-      await createDelivery(id, {
-        facturaId: facturaId ?? null,
-        lines: [{ descriptionOrderId, peso, descripcion }]
-      })
-      setOpenModal(false)
+      if (String(order.state).toUpperCase() === 'CANCELADO') {
+        await reactivateOrder(Number(id))
+      } else {
+        await cancelOrder(Number(id))
+        await reactivateOrder(Number(id))
+      }
       await load()
-      showToast('success', 'Entrega registrada')
+      showToast('success', 'Estado recalculado según entregas y líneas')
     } catch (err) {
       console.error(err)
-      showToast('error', err.response?.data?.error || 'Error creando entrega')
+      showToast('error', err.response?.data?.error || 'No se pudo recalcular el estado')
     }
   }
+
+  // ====== agrupación de entregas por entrega (deliveryId/fecha) ======
+  const grouped = useMemo(() => {
+    const map = new Map()
+    for (const d of deliveries) {
+      const k = String(d.deliveryId)
+      if (!map.has(k)) {
+        map.set(k, {
+          deliveryId: d.deliveryId,
+          fecha: d.fecha,
+          facturaId: d.facturaId ?? null,
+          invoiceCode: d.invoiceCode ?? null,   // ← requiere join a FACTURAS en backend
+          currency: d.currency || 'PEN',
+          lines: []
+        })
+      }
+      map.get(k).lines.push({
+        lineId: d.lineId,
+        descriptionOrderId: d.descriptionOrderId,
+        peso: Number(d.peso || 0),
+        unitPrice: d.unitPrice != null ? Number(d.unitPrice) : null,
+        subtotal: Number(d.subtotal || 0),
+        currency: d.currency || 'PEN',
+        descripcion: d.descripcion || null      // ← requiere seleccionar DESCRIPCION en backend
+      })
+    }
+    // calcula totales por grupo
+    const arr = Array.from(map.values())
+    for (const g of arr) {
+      g.pesoTotal = g.lines.reduce((a, l) => a + (Number(l.peso) || 0), 0)
+      g.subtotalTotal = g.lines.reduce((a, l) => a + (Number(l.subtotal) || 0), 0)
+    }
+    // orden por fecha desc, luego deliveryId desc
+    arr.sort((a,b) => {
+      const ta = new Date(a.fecha).getTime()
+      const tb = new Date(b.fecha).getTime()
+      if (tb !== ta) return tb - ta
+      return Number(b.deliveryId) - Number(a.deliveryId)
+    })
+    return arr
+  }, [deliveries])
 
   if (loading) return <section className="card">Cargando…</section>
   if (!order)  return <section className="card">Pedido no encontrado</section>
@@ -236,24 +259,22 @@ export default function PedidoDetalle() {
         </div>
       )}
 
-        <div className="topbar">
-          <h3 style={{ margin:0 }}>Pedido #{order.id}</h3>
-          <div className={badgeClass(order.state)}>{order.state}</div>
-          <div style={{ flex:1 }} />
-          {puedeEstado && (
-            <>
-              {/* Recalcular/actualizar estado siempre visible para roles permitidos */}
-              <button className="btn-secondary" onClick={onRefreshState}>Actualizar estado</button>
-
-              {!isCancelado && (
-                <button className="btn-secondary" onClick={()=>setAskCancel(true)}>Cancelar pedido</button>
-              )}
-              {isCancelado && (
-                <button className="btn" onClick={onReactivate}>Reactivar</button>
-              )}
-            </>
-          )}
-        </div>
+      <div className="topbar">
+        <h3 style={{ margin:0 }}>Pedido #{order.id}</h3>
+        <div className={badgeClass(order.state)}>{order.state}</div>
+        <div style={{ flex:1 }} />
+        {puedeEstado && (
+          <>
+            <button className="btn-secondary" onClick={onRefreshState}>Actualizar estado</button>
+            {!isCancelado && (
+              <button className="btn-secondary" onClick={()=>setAskCancel(true)}>Cancelar pedido</button>
+            )}
+            {isCancelado && (
+              <button className="btn" onClick={onReactivate}>Reactivar</button>
+            )}
+          </>
+        )}
+      </div>
 
       <div className="muted">
         {order.customerName} · {new Date(order.fecha).toLocaleString()}
@@ -265,13 +286,12 @@ export default function PedidoDetalle() {
           <div className="progress__bar_fill" style={{ width: `${(order.avanceEntrega ?? totals.avance).toFixed(2)}%` }} />
         </div>
         <div className="muted">
-          Entregado: {totals.entregado.toFixed(2)} / {totals.pedido.toFixed(2)} kg
+          Entregado: {fmtKg(totals.entregado)} / {fmtKg(totals.pedido)} kg
         </div>
       </div>
 
       <h4 style={{ marginTop:16 }}>Líneas del pedido</h4>
       <div className="table">
-        {/* Agregamos la columna Presentación */}
         <div className="table__head" style={{ gridTemplateColumns:'2fr .8fr .8fr .8fr .8fr auto' }}>
           <div>Producto</div>
           <div>Presentación</div>
@@ -287,15 +307,19 @@ export default function PedidoDetalle() {
             {editLineId === l.id ? (
               <>
                 <div>
-                  <input type="number" step="1" min="1" value={editForm.presentacion}
-                    onChange={e=>setEditForm(f=>({ ...f, presentacion: e.target.value }))}/>
+                  <input
+                    type="number" step="1" min="1" value={editForm.presentacion}
+                    onChange={e=>setEditForm(f=>({ ...f, presentacion: e.target.value }))}
+                  />
                 </div>
                 <div>
-                  <input type="number" step="0.01" min={l.entregado} value={editForm.peso}
-                    onChange={e=>setEditForm(f=>({ ...f, peso: e.target.value }))}/>
+                  <input
+                    type="number" step="0.01" min={l.entregado} value={editForm.peso}
+                    onChange={e=>setEditForm(f=>({ ...f, peso: e.target.value }))}
+                  />
                 </div>
-                <div>{l.entregado.toFixed(2)} kg</div>
-                <div>{Math.max(0, Number(editForm.peso||0)-l.entregado).toFixed(2)} kg</div>
+                <div>{fmtKg(l.entregado)} kg</div>
+                <div>{fmtKg(Math.max(0, Number(editForm.peso||0)-l.entregado))} kg</div>
                 <div style={{ display:'flex', gap:6 }}>
                   <button className="btn" onClick={()=>submitEdit(l.id)}>Guardar</button>
                   <button className="btn-secondary" onClick={cancelEdit}>Cancelar</button>
@@ -304,9 +328,9 @@ export default function PedidoDetalle() {
             ) : (
               <>
                 <div>{Number(l.presentacion || 0).toFixed(0)}</div>
-                <div>{l.pedido.toFixed(2)} kg</div>
-                <div>{l.entregado.toFixed(2)} kg</div>
-                <div>{l.pendiente.toFixed(2)} kg</div>
+                <div>{fmtKg(l.pedido)} kg</div>
+                <div>{fmtKg(l.entregado)} kg</div>
+                <div>{fmtKg(l.pendiente)} kg</div>
                 <div style={{ display:'flex', gap:6 }}>
                   {puedeEditar && !isCancelado && (
                     <>
@@ -337,13 +361,17 @@ export default function PedidoDetalle() {
             </label>
             <label className="form-field">
               <span>Peso (kg)</span>
-              <input type="number" step="0.01" min="0.01" value={newLine.peso}
-                     onChange={e=>setNewLine(v=>({ ...v, peso: e.target.value }))} required/>
+              <input
+                type="number" step="0.01" min="0.01" value={newLine.peso}
+                onChange={e=>setNewLine(v=>({ ...v, peso: e.target.value }))} required
+              />
             </label>
             <label className="form-field">
               <span>Presentación</span>
-              <input type="number" step="1" min="1" value={newLine.presentacion}
-                     onChange={e=>setNewLine(v=>({ ...v, presentacion: e.target.value }))} required/>
+              <input
+                type="number" step="1" min="1" value={newLine.presentacion}
+                onChange={e=>setNewLine(v=>({ ...v, presentacion: e.target.value }))} required
+              />
             </label>
             <div className="form-actions">
               <button className="btn" disabled={!canAddLine}>Agregar</button>
@@ -352,38 +380,52 @@ export default function PedidoDetalle() {
         </div>
       )}
 
-      <h4 style={{ marginTop:16 }}>Entregas realizadas</h4>
-      <div className="table">
-        <div className="table__head" style={{ gridTemplateColumns:'1fr 1fr 1fr 1fr' }}>
-          <div>Fecha</div>
-          <div>Peso</div>
-          <div>Precio</div>
-          <div>Subtotal</div>
-        </div>
-        {deliveries.map((d, idx) => (
-          <div className="table__row" key={`${d.deliveryId}-${d.lineId}-${idx}`} style={{ gridTemplateColumns:'1fr 1fr 1fr 1fr' }}>
-            <div>{new Date(d.fecha).toLocaleString()}</div>
-            <div>{Number(d.peso).toFixed(2)} kg</div>
-            <div>{d.unitPrice ? Number(d.unitPrice).toFixed(2) : '—'} {d.currency || ''}</div>
-            <div>{Number(d.subtotal).toFixed(2)} {d.currency || ''}</div>
-          </div>
-        ))}
-        {deliveries.length === 0 && <div className="muted">Sin entregas</div>}
+      {/* ===== Entregas realizadas ===== */}
+      <div className="topbar" style={{ marginTop:16, marginBottom:0 }}>
+        <h4 style={{ margin:0 }}>Entregas realizadas</h4>
+        <div style={{ flex:1 }} />
+        {puedeEntregar && !isCancelado && (
+          <button className="btn" onClick={() => navigate(`/app/entregas/orden/${id}`)}>
+            + Nueva entrega
+          </button>
+        )}
       </div>
 
-      {puedeEntregar && !isCancelado && (
-        <>
-          <div style={{ marginTop:16 }}>
-            <button className="btn" onClick={()=>setOpenModal(true)}>+ Nueva entrega</button>
+      {grouped.length === 0 && <div className="muted" style={{marginTop:8}}>Sin entregas</div>}
+
+      {grouped.map(g => (
+        <div key={g.deliveryId} className="card" style={{ marginTop:10 }}>
+          <div style={{ display:'flex', alignItems:'center', gap:12, flexWrap:'wrap' }}>
+            <div style={{ fontWeight:600 }}>
+              Entrega #{g.deliveryId} · {new Date(g.fecha).toLocaleString()}
+            </div>
+            <div className="muted">
+              Factura: {g.invoiceCode ? <b>{g.invoiceCode}</b> : 'Sin factura'}
+            </div>
+            <div style={{ flex:1 }} />
+            <div className="muted">
+              Total: {fmtKg(g.pesoTotal)} kg · {fmtMoney(g.subtotalTotal)} {g.currency}
+            </div>
           </div>
-          <DeliveryModal
-            open={openModal}
-            onClose={()=>setOpenModal(false)}
-            lines={lines} // [{ id, productName, pedido, entregado, pendiente }]
-            onSubmit={handleSubmitDelivery}
-          />
-        </>
-      )}
+
+          <div className="table" style={{ marginTop:10 }}>
+            <div className="table__head" style={{ gridTemplateColumns:'1fr 1fr 1fr 2fr' }}>
+              <div>Peso</div>
+              <div>Precio</div>
+              <div>Subtotal</div>
+              <div>Comentario</div>
+            </div>
+            {g.lines.map((l, idx) => (
+              <div key={`${g.deliveryId}-${l.lineId}-${idx}`} className="table__row" style={{ gridTemplateColumns:'1fr 1fr 1fr 2fr' }}>
+                <div>{fmtKg(l.peso)} kg</div>
+                <div>{l.unitPrice != null ? fmtMoney(l.unitPrice) : '0.00'} {l.currency}</div>
+                <div>{fmtMoney(l.subtotal)} {l.currency}</div>
+                <div>{l.descripcion || <span className="muted">—</span>}</div>
+              </div>
+            ))}
+          </div>
+        </div>
+      ))}
 
       {/* Modal confirmación cancelar pedido */}
       {askCancel && (

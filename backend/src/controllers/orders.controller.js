@@ -1,12 +1,23 @@
 // src/controllers/orders.controller.js
 import { z } from 'zod'
-import {createOrderWithLines,getOrderById,listOrders,updateOrderState,recomputeAndSetOrderState, setOrderStateByName,listOrdersInProcess} from '../models/orders.model.js'
+import {
+  createOrderWithLines,
+  getOrderById,
+  listOrders,
+  updateOrderState,
+  recomputeAndSetOrderState,
+  setOrderStateByName,
+  listOrdersInProcess,
+  listOrdersWithStates,
+  listOrdersByStates
+} from '../models/orders.model.js'
 
 const lineSchema = z.object({
   productId: z.number().int().positive(),
   peso: z.number().positive(),
   presentacion: z.number().positive()
 })
+
 export async function listOrdersInProcessCtrl(req, res) {
   try {
     const q = (req.query.q || '').trim()
@@ -19,6 +30,7 @@ export async function listOrdersInProcessCtrl(req, res) {
     res.status(500).json({ error: 'Error listando pedidos en proceso' })
   }
 }
+
 export async function createOrder(req, res) {
   try {
     const schema = z.object({
@@ -59,7 +71,7 @@ export async function listOrdersCtrl(req, res) {
   try {
     const schema = z.object({
       customerId: z.coerce.number().int().positive().optional(),
-      state: z.string().optional(),
+      state: z.string().optional(),          // ← puede venir como "PENDIENTE,EN_PROCESO"
       from: z.string().optional(),
       to: z.string().optional(),
       q: z.string().optional(),
@@ -68,9 +80,18 @@ export async function listOrdersCtrl(req, res) {
     })
 
     const parsed = schema.safeParse(req.query)
-    if (!parsed.success) return res.status(400).json({ error: parsed.error.errors[0].message })
+    if (!parsed.success) {
+      return res.status(400).json({ error: parsed.error.errors[0].message })
+    }
 
-    const data = await listOrders(parsed.data)
+    // 🔹 NUEVO: soportar múltiples estados separados por coma
+    const stateParam = (parsed.data.state || '').trim()
+    const states = stateParam
+      ? stateParam.split(',').map(s => s.trim()).filter(Boolean)
+      : undefined
+
+    // Llamamos al model pasando "states" (array) en vez de "state" (string)
+    const data = await listOrders({ ...parsed.data, states })
     res.json(data)
   } catch (e) {
     console.error(e)
@@ -94,6 +115,7 @@ export async function changeOrderState(req, res) {
     res.status(500).json({ error: 'Error cambiando estado' })
   }
 }
+
 export async function cancelOrderCtrl(req, res) {
   try {
     const orderId = Number(req.params.id)
@@ -117,5 +139,48 @@ export async function reactivateOrderCtrl(req, res) {
   } catch (e) {
     console.error(e)
     res.status(500).json({ error: 'Error reactivando pedido' })
+  }
+}
+export async function listOrdersCombinedCtrl(req, res) {
+  try {
+    // state llega como "PENDIENTE,EN_PROCESO" (opcional)
+    const q      = (req.query.q || '').trim()
+    const limit  = Math.min(Number(req.query.limit) || 50, 200)
+    const offset = Math.max(Number(req.query.offset) || 0, 0)
+
+    const stateParam = (req.query.state || '').trim()
+    const states = stateParam
+      ? stateParam.split(',').map(s => s.trim()).filter(Boolean)
+      : undefined
+
+    const data = await listOrdersWithStates({ q, limit, offset, states })
+    res.json(data)
+  } catch (e) {
+    console.error(e)
+    res.status(500).json({ error: 'Error listando pedidos (combined)' })
+  }
+}
+export async function searchOrdersCtrl(req, res) {
+  try {
+    const q      = (req.query.q || '').trim()
+    const limit  = Math.min(Number(req.query.limit) || 50, 200)
+    const offset = Math.max(Number(req.query.offset) || 0, 0)
+
+    // state puede venir como CSV: "PENDIENTE,EN_PROCESO"
+    const csv = (req.query.state || '').trim()
+    let states = []
+    if (csv) {
+      states = csv.split(',').map(s => s.trim()).filter(Boolean)
+    }
+
+    // Validar estados permitidos (opcional pero útil):
+    const allowed = new Set(['PENDIENTE','EN_PROCESO','ENTREGADO','CANCELADO'])
+    states = states.filter(s => allowed.has(s))
+
+    const data = await listOrdersByStates({ q, states, limit, offset })
+    return res.json(data)
+  } catch (e) {
+    console.error(e)
+    return res.status(500).json({ error: 'Error buscando pedidos' })
   }
 }

@@ -1,17 +1,17 @@
 // src/pages/EntregaDetalle.jsx
 import { useEffect, useMemo, useState } from 'react'
-import { useParams } from 'react-router-dom'
+import { useParams, useNavigate } from 'react-router-dom'
 import { fetchOrder } from '../api/orders'
-import { fetchDeliveriesByOrder, createDelivery } from '../api/deliveries'
+import { fetchDeliveriesByOrder } from '../api/deliveries'
 import { hasRole, getUserFromToken } from '../utils/auth'
-import { getEffectivePrice } from '../api/prices'
-import CreateDeliveryModal from '../components/CreateDeliveryModal' // <-- NUEVO
+import CreateDeliveryModal from '../components/CreateDeliveryModal'
 
 const fmtKg = n => (Number(n)||0).toFixed(2)
 const fmtMoney = n => (Number(n)||0).toFixed(2)
 
 export default function EntregaDetalle() {
   const { id } = useParams()
+  const navigate = useNavigate()
   const me = getUserFromToken()
   const puedeEntregar =
     hasRole(me, 'PRODUCCION') || hasRole(me, 'JEFE') || hasRole(me, 'ADMINISTRADOR') || hasRole(me, 'ALMACENERO')
@@ -20,8 +20,6 @@ export default function EntregaDetalle() {
   const [deliveries, setDeliveries] = useState([])
   const [loading, setLoading] = useState(true)
   const [msg, setMsg] = useState('')
-
-  // modal multi-línea
   const [openCreate, setOpenCreate] = useState(false)
 
   const load = async () => {
@@ -35,7 +33,7 @@ export default function EntregaDetalle() {
   }
   useEffect(()=>{ load() }, [id])
 
-  // entregado por línea
+  // entregado por línea (para pendientes)
   const entregadoPorLinea = useMemo(() => {
     const map = new Map()
     for (const l of deliveries) {
@@ -46,7 +44,6 @@ export default function EntregaDetalle() {
     return map
   }, [deliveries])
 
-  // líneas enriquecidas
   const lines = useMemo(() => {
     if (!order?.lines) return []
     return order.lines.map(l => {
@@ -61,91 +58,17 @@ export default function EntregaDetalle() {
   const entregadoTotal  = useMemo(() => lines.reduce((a, l) => a + l.entregado, 0), [lines])
   const avanceCalc = pedidoPesoTotal ? Math.min(100, (entregadoTotal / pedidoPesoTotal) * 100) : 0
 
-  // === Form (modo 1: tu formulario actual de UNA sola línea) ===
-  const productos = useMemo(() => {
-    const m = new Map()
-    for (const l of lines) {
-      if (!m.has(l.productId)) m.set(l.productId, l.productName)
+  // AGRUPAR entregas por deliveryId
+  const deliveriesGrouped = useMemo(() => {
+    const map = new Map()
+    for (const r of deliveries) {
+      const k = r.deliveryId
+      if (!map.has(k)) map.set(k, { deliveryId: k, fecha: r.fecha, facturaId: r.facturaId, invoiceCode: r.invoiceCode, lines: [] })
+      map.get(k).lines.push(r)
     }
-    return Array.from(m, ([id, name]) => ({ id, name }))
-  }, [lines])
-
-  const [selectedProductId, setSelectedProductId] = useState('')
-  const lineasDelProducto = useMemo(() => {
-    const pid = Number(selectedProductId)
-    return lines.filter(l => l.productId === pid)
-  }, [lines, selectedProductId])
-
-  const [selectedLineId, setSelectedLineId] = useState('')
-  const [peso, setPeso] = useState('')
-  const [unitPrice, setUnitPrice] = useState('')
-  const [currency, setCurrency] = useState('PEN')
-  const [descripcion, setDescripcion] = useState('')
-  const [submitting, setSubmitting] = useState(false)
-
-  useEffect(() => {
-    setSelectedLineId('')
-    setPeso('')
-    setDescripcion('')
-    setUnitPrice('')
-    if (!order?.customerId || !selectedProductId) return
-    ;(async ()=>{
-      const { price, currency } = await getEffectivePrice({
-        customerId: order.customerId,
-        productId: Number(selectedProductId)
-      })
-      setUnitPrice(String(price ?? 0))
-      setCurrency(currency || 'PEN')
-    })()
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [selectedProductId])
-
-  const selectedLine = useMemo(
-    () => lineasDelProducto.find(l => String(l.id) === String(selectedLineId)) || null,
-    [lineasDelProducto, selectedLineId]
-  )
-
-  const subtotal = useMemo(() => (Number(peso)||0) * (Number(unitPrice)||0), [peso, unitPrice])
-
-  const canSubmit = useMemo(() => {
-    if (!puedeEntregar) return false
-    if (!selectedProductId || !selectedLineId) return false
-    if (Number(peso) <= 0) return false
-    if (selectedLine && Number(peso) > Number(selectedLine.pendiente || 0)) return false
-    if (unitPrice === '' || isNaN(Number(unitPrice))) return false
-    return true
-  }, [puedeEntregar, selectedProductId, selectedLineId, peso, unitPrice, selectedLine])
-
-  const submit = async (e) => {
-    e.preventDefault()
-    if (!canSubmit) return
-    setSubmitting(true); setMsg('')
-    try {
-      await createDelivery(id, {
-        facturaId: null,
-        lines: [{
-          descriptionOrderId: Number(selectedLineId),
-          peso: Number(peso),
-          descripcion: descripcion || null,
-          unitPrice: Number(unitPrice),
-          currency: currency || 'PEN'
-        }]
-      })
-      setPeso(''); setDescripcion('')
-      await load()
-      setMsg('✅ Entrega registrada')
-    } catch (err) {
-      console.error('AXIOS ERROR:', err)
-      console.error('SERVER ERROR BODY:', err?.response?.data)
-      const server = err?.response?.data
-      setMsg(server?.error || server?.message || 'Error creando entrega')
-    } finally {
-      setSubmitting(false)
-    }
-  }
-
-  if (loading) return <section className="card">Cargando…</section>
-  if (!order)  return <section className="card">Pedido no encontrado</section>
+    // ordenar por fecha desc
+    return Array.from(map.values()).sort((a,b)=> new Date(b.fecha) - new Date(a.fecha))
+  }, [deliveries])
 
   const badgeClass = (state) => {
     switch (state) {
@@ -157,10 +80,22 @@ export default function EntregaDetalle() {
     }
   }
 
+  if (loading) return <section className="card">Cargando…</section>
+  if (!order)  return <section className="card">Pedido no encontrado</section>
+
   return (
     <section className="card">
-      <h3 style={{ marginTop:0 }}>Pedido #{order.id}</h3>
-      <div className="muted">
+      <div className="topbar" style={{ marginBottom:0 }}>
+        <h3 style={{ margin:0 }}>Pedido #{order.id}</h3>
+        <div style={{ display:'flex', gap:8 }}>
+          <button className="btn-secondary" onClick={()=> navigate('/app/entregas/nueva')}>← Volver</button> 
+          {puedeEntregar && order.state !== 'CANCELADO' && (
+            <button className="btn" onClick={()=>setOpenCreate(true)}>Nueva entrega</button>
+          )}
+        </div>
+      </div>
+
+      <div className="muted" style={{ marginTop:6 }}>
         {order.customerName} · {new Date(order.fecha).toLocaleString()} · <span className={badgeClass(order.state)}>{order.state}</span>
       </div>
 
@@ -194,37 +129,45 @@ export default function EntregaDetalle() {
         ))}
       </div>
 
-      {puedeEntregar && order.state !== 'CANCELADO' && (
-        <>
-          {/* MODO 2: Botón para abrir modal multi-línea */}
-          <div style={{ display:'flex', gap:8, alignItems:'center', marginTop:16 }}>
-            <button className="btn-secondary" onClick={()=>setOpenCreate(true)}>Nueva entrega </button>
-          </div>
-        </>
-      )}
-
       <h4 style={{ marginTop:16 }}>Entregas realizadas</h4>
-      <div className="table">
-        <div className="table__head">
-          <div>Fecha</div>
-          <div>Peso</div>
-          <div>Precio</div>
-          <div>Subtotal</div>
-        </div>
-        {deliveries.map((d, idx) => (
-          <div className="table__row" key={`${d.deliveryId}-${d.lineId}-${idx}`}>
-            <div>{new Date(d.fecha).toLocaleString()}</div>
-            <div>{fmtKg(d.peso)} kg</div>
-            <div>{d.unitPrice ? fmtMoney(d.unitPrice) : '0.00'} {d.currency || ''}</div>
-            <div>{fmtMoney(d.subtotal)} {d.currency || ''}</div>
+      {deliveriesGrouped.length === 0 && <div className="muted">Sin entregas</div>}
+      {deliveriesGrouped.map(grp => (
+        <div key={grp.deliveryId} className="card" style={{ marginTop:8 }}>
+          <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center' }}>
+            <div>
+              <b>Entrega #{grp.deliveryId}</b> · {new Date(grp.fecha).toLocaleString()}
+            </div>
+            <div className="muted">
+              Factura: <b>{grp.invoiceCode ? grp.invoiceCode : '—'}</b>
+            </div>
           </div>
-        ))}
-        {deliveries.length === 0 && <div className="muted">Sin entregas</div>}
-      </div>
+
+          <div className="table" style={{ marginTop:10 }}>
+            <div className="table__head">
+              <div>Peso</div>
+              <div>Precio</div>
+              <div>Subtotal</div>
+            </div>
+            {grp.lines.map((d, idx) => (
+              <div className="table__row" key={`${d.deliveryId}-${d.lineId}-${idx}`}>
+                <div>{fmtKg(d.peso)} kg</div>
+                <div>{d.unitPrice ? fmtMoney(d.unitPrice) : '0.00'} {d.currency || ''}</div>
+                <div>{fmtMoney(d.subtotal)} {d.currency || ''}</div>
+              </div>
+            ))}
+            <div className="table__row" style={{ fontWeight:700 }}>
+              <div>Total</div>
+              <div />
+              <div>
+                {fmtMoney(grp.lines.reduce((a,r)=>a+Number(r.subtotal||0),0))} {grp.lines[0]?.currency || ''}
+              </div>
+            </div>
+          </div>
+        </div>
+      ))}
 
       {msg && <div style={{ marginTop:12 }}>{msg}</div>}
 
-      {/* MODAL multi-línea */}
       <CreateDeliveryModal
         open={openCreate}
         onClose={()=>setOpenCreate(false)}

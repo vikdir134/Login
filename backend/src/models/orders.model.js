@@ -293,3 +293,118 @@ export async function listOrdersInProcess({ q, limit = 50, offset = 0 }) {
 
   return { items: rows, total: Number(total || 0) }
 }
+
+export async function listOrdersWithStates({
+  customerId,
+  states,            // array opcional de estados: ['PENDIENTE','EN_PROCESO']
+  from,
+  to,
+  q,
+  limit = 20,
+  offset = 0
+}) {
+  const params = []
+  let where = ' WHERE 1=1 '
+
+  if (customerId) { where += ' AND o.ID_CUSTOMER = ? '; params.push(customerId) }
+
+  if (Array.isArray(states) && states.length > 0) {
+    where += ` AND s.DESCRIPCION IN (${states.map(() => '?').join(',')}) `
+    params.push(...states)
+  }
+
+  if (from) { where += ' AND o.FECHA >= ? '; params.push(from + ' 00:00:00') }
+  if (to)   { where += ' AND o.FECHA <= ? '; params.push(to   + ' 23:59:59') }
+
+  if (q) {
+    where += ` AND (
+      c.RAZON_SOCIAL LIKE ?
+      OR c.RUC LIKE ?
+      OR EXISTS (
+        SELECT 1
+          FROM DESCRIPTION_ORDER d
+          JOIN PRODUCTS p ON p.ID_PRODUCT = d.ID_PRODUCT
+         WHERE d.ID_ORDER = o.ID_ORDER
+           AND p.DESCRIPCION LIKE ?
+      )
+    )`
+    params.push(`%${q}%`, `%${q}%`, `%${q}%`)
+  }
+
+  const [[{ total }]] = await pool.query(
+    `SELECT COUNT(*) AS total
+       FROM ORDERS o
+       JOIN STATES s    ON s.ID_STATE = o.ID_STATE
+       JOIN CUSTOMERS c ON c.ID_CUSTOMER = o.ID_CUSTOMER
+      ${where}`,
+    params
+  )
+
+  const [rows] = await pool.query(
+    `SELECT
+       o.ID_ORDER       AS id,
+       o.FECHA          AS fecha,
+       c.RAZON_SOCIAL   AS customerName,
+       s.DESCRIPCION    AS state
+     FROM ORDERS o
+     JOIN STATES s    ON s.ID_STATE = o.ID_STATE
+     JOIN CUSTOMERS c ON c.ID_CUSTOMER = o.ID_CUSTOMER
+     ${where}
+     ORDER BY o.FECHA DESC, o.ID_ORDER DESC
+     LIMIT ? OFFSET ?`,
+    [...params, Number(limit), Number(offset)]
+  )
+
+  return { items: rows, total: Number(total || 0) }
+}
+// === NUEVO: listar por múltiples estados (con total) ===
+export async function listOrdersByStates({ q, states = [], limit = 20, offset = 0 }) {
+  const params = []
+  let where = ' WHERE 1=1 '
+
+  if (Array.isArray(states) && states.length > 0) {
+    where += ` AND s.DESCRIPCION IN (${states.map(() => '?').join(',')}) `
+    params.push(...states)
+  }
+
+  if (q) {
+    where += ` AND (
+      c.RAZON_SOCIAL LIKE ?
+      OR c.RUC LIKE ?
+      OR EXISTS (
+        SELECT 1
+          FROM DESCRIPTION_ORDER d
+          JOIN PRODUCTS p ON p.ID_PRODUCT = d.ID_PRODUCT
+         WHERE d.ID_ORDER = o.ID_ORDER
+           AND p.DESCRIPCION LIKE ?
+      )
+    )`
+    params.push(`%${q}%`, `%${q}%`, `%${q}%`)
+  }
+
+  const [[{ total }]] = await pool.query(
+    `SELECT COUNT(*) AS total
+       FROM ORDERS o
+       JOIN STATES s    ON s.ID_STATE = o.ID_STATE
+       JOIN CUSTOMERS c ON c.ID_CUSTOMER = o.ID_CUSTOMER
+      ${where}`,
+    params
+  )
+
+  const [rows] = await pool.query(
+    `SELECT
+       o.ID_ORDER       AS id,
+       o.FECHA          AS fecha,
+       c.RAZON_SOCIAL   AS customerName,
+       s.DESCRIPCION    AS state
+     FROM ORDERS o
+     JOIN STATES s    ON s.ID_STATE = o.ID_STATE
+     JOIN CUSTOMERS c ON c.ID_CUSTOMER = o.ID_CUSTOMER
+     ${where}
+     ORDER BY o.FECHA DESC, o.ID_ORDER DESC
+     LIMIT ? OFFSET ?`,
+    [...params, Number(limit), Number(offset)]
+  )
+
+  return { items: rows, total: Number(total || 0) }
+}

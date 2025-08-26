@@ -26,6 +26,7 @@ import productPresentationsRouter from './routes/product-presentations.routes.js
 import mermaRouter from './routes/merma.routes.js'
 import { finishedInputRouter } from './routes/finished-input.routes.js'
 import pricesRouter from './routes/prices.routes.js'
+import { invoicesRouter } from './routes/invoices.routes.js'
 
 const app = express();
 app.use(cors({ origin: 'http://localhost:5173' }));
@@ -55,6 +56,7 @@ app.use('/api', presentationsRouter)
 app.use('/api', productPresentationsRouter)
 app.use('/api', mermaRouter)
 app.use('/api/prices', pricesRouter)
+app.use('/api/invoices', invoicesRouter)
 // al final de tu configuración de Express
 app.use((err, req, res, next) => {
   console.error('[GLOBAL ERROR]', err)

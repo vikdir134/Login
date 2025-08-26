@@ -145,26 +145,31 @@ export class DeliveriesModel {
     }
   }
 
-  static async listByOrder(orderId) {
-    const [rows] = await pool.query(
-      `SELECT
-         od.ID_ORDER_DELIVERY          AS deliveryId,
-         od.FECHA                      AS fecha,
-         od.ID_FACTURA                 AS facturaId,
-         dd.ID_DESCRIPTION_DELIVERY    AS lineId,
-         dd.ID_DESCRIPTION_ORDER       AS descriptionOrderId,
-         dd.PESO                       AS peso,
-         dd.UNIT_PRICE                 AS unitPrice,
-         dd.SUBTOTAL                   AS subtotal,
-         dd.CURRENCY                   AS currency
-       FROM ORDER_DELIVERY od
-       JOIN DESCRIPTION_DELIVERY dd ON dd.ID_ORDER_DELIVERY = od.ID_ORDER_DELIVERY
-      WHERE od.ID_ORDER = ?
-      ORDER BY od.FECHA DESC, dd.ID_DESCRIPTION_DELIVERY ASC`,
-      [orderId]
-    )
-    return rows
-  }
+  // backend/src/models/deliveries.model.js  (solo listByOrder)
+static async listByOrder(orderId) {
+  const [rows] = await pool.query(
+    `SELECT
+       od.ID_ORDER_DELIVERY          AS deliveryId,
+       od.FECHA                      AS fecha,
+       od.ID_FACTURA                 AS facturaId,
+       f.CODIGO                      AS invoiceCode,     -- <- NUEVO
+       dd.ID_DESCRIPTION_DELIVERY    AS lineId,
+       dd.ID_DESCRIPTION_ORDER       AS descriptionOrderId,
+       dd.PESO                       AS peso,
+       dd.UNIT_PRICE                 AS unitPrice,
+       dd.SUBTOTAL                   AS subtotal,
+       dd.CURRENCY                   AS currency
+     FROM ORDER_DELIVERY od
+     JOIN DESCRIPTION_DELIVERY dd ON dd.ID_ORDER_DELIVERY = od.ID_ORDER_DELIVERY
+     LEFT JOIN FACTURAS f ON f.ID_FACTURA = od.ID_FACTURA   -- <- NUEVO
+    WHERE od.ID_ORDER = ?
+    ORDER BY od.FECHA DESC, dd.ID_DESCRIPTION_DELIVERY ASC`,
+    [orderId]
+  )
+  return rows
+}
+
+
 
   static async listAll({ q, from, to, limit = 30, offset = 0 }) {
     const params = []

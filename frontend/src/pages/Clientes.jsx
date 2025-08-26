@@ -59,7 +59,20 @@ export default function Clientes() {
             <div className="table__row" key={r.id}>
               <div>{r.RUC}</div>
               <div>{r.razonSocial}</div>
-              <div>{r.activo ? 'Activo' : 'Inactivo'}</div>
+              <div>
+                <span
+                  style={{
+                    display: 'inline-block',
+                    padding: '4px 10px',
+                    borderRadius: '6px',
+                    border: `2px solid ${r.activo ? 'green' : 'red'}`,
+                    color: r.activo ? 'green' : 'red',
+                    fontWeight: 600
+                  }}
+                >
+                  {r.activo ? 'Activo' : 'Inactivo'}
+                </span>
+              </div>
               <div><Link className="btn-secondary" to={`/app/clientes/${r.id}`}>Ver</Link></div>
             </div>
           ))}
