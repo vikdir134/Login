@@ -18,6 +18,8 @@ import ClienteDetalle from './pages/ClienteDetalle'
 import PedidoDetalle from './pages/PedidoDetalle'
 import PedidosProceso from './pages/PedidosProceso'
 import EntregaDetalle from './pages/EntregaDetalle'
+import CuentasPorCobrar from './pages/CuentasPorCobrar'
+import CuentasPorCobrarCliente from './pages/CuentasPorCobrarCliente'
 
 export default function App() {
   return (
@@ -32,6 +34,12 @@ export default function App() {
       >
         {/* Inicio: redirige según rol */}
         <Route index element={<DefaultByRole />} />
+        <Route path="cxc" element={
+  <RequireRole roles={['JEFE','ADMINISTRADOR']}><CuentasPorCobrar /></RequireRole>
+} />
+<Route path="cxc/:id" element={
+  <RequireRole roles={['JEFE','ADMINISTRADOR']}><CuentasPorCobrarCliente /></RequireRole>
+} />
 
         {/* JEFE y ADMIN ven Dashboard, Clientes, Pagos */}
         <Route path="clientes" element={

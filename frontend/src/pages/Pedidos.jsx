@@ -1,85 +1,240 @@
-import { useEffect, useMemo, useState } from 'react'
+// src/pages/Pedidos.jsx
+import { useEffect, useMemo, useState, useRef } from 'react'
 import { Link } from 'react-router-dom'
-import { listOrders, createOrderApi } from '../api/orders'
+import { listOrdersCombined, createOrderApi } from '../api/orders' // 👈 usamos el que devuelve {items,total}
 import { hasRole, getUserFromToken } from '../utils/auth'
 import { fetchCustomers } from '../api/customers'
 import api from '../api/axios'
+
+/** Utils */
+const normalize = (s='') =>
+  s.normalize('NFD').replace(/\p{Diacritic}/gu,'').toLowerCase()
+
+const badgeClass = (state) => {
+  switch (String(state || '').toUpperCase()) {
+    case 'PENDIENTE':   return 'badge badge--danger'
+    case 'EN_PROCESO':  return 'badge badge--warning'
+    case 'ENTREGADO':   return 'badge badge--success'
+    case 'CANCELADO':   return 'badge badge--dark'
+    default:            return 'badge'
+  }
+}
+
+/** Filtro para autocomplete */
+function filterStartsThenIncludes(options, query, getLabel){
+  const q = normalize(query)
+  if (!q) return []
+  const starts = []
+  const includes = []
+  for (const opt of options){
+    const l = normalize(getLabel(opt))
+    if (l.startsWith(q)) starts.push(opt)
+    else if (l.includes(q)) includes.push(opt)
+  }
+  return [...starts, ...includes]
+}
+
+/** Autocomplete ligero */
+function Autocomplete({
+  label,
+  value,
+  display,
+  onChange,
+  options,
+  getLabel,
+  getKey,
+  placeholder = 'Escribe para buscar…'
+}) {
+  const [open, setOpen] = useState(false)
+  const [query, setQuery] = useState(display || '')
+  const [hoverIdx, setHoverIdx] = useState(-1)
+  const boxRef = useRef(null)
+
+  useEffect(()=>{
+    const onDoc = (e)=>{
+      if (!boxRef.current) return
+      if (!boxRef.current.contains(e.target)) setOpen(false)
+    }
+    document.addEventListener('mousedown', onDoc)
+    return ()=> document.removeEventListener('mousedown', onDoc)
+  },[])
+
+  const results = useMemo(()=>{
+    if (!query) return []
+    return filterStartsThenIncludes(options, query, getLabel).slice(0, 20)
+  },[options, query, getLabel])
+
+  useEffect(()=>{ setQuery(display || '') }, [display])
+
+  const choose = (opt) => {
+    const id = getKey(opt)
+    const text = getLabel(opt)
+    onChange(id, opt)
+    setQuery(text)
+    setOpen(false)
+  }
+
+  const onKeyDown = (e) => {
+    if (!open && (e.key === 'ArrowDown' || e.key === 'Enter')) {
+      setOpen(true); return
+    }
+    if (!open) return
+    if (e.key === 'ArrowDown') {
+      e.preventDefault()
+      setHoverIdx(i => Math.min(results.length-1, i+1))
+    } else if (e.key === 'ArrowUp') {
+      e.preventDefault()
+      setHoverIdx(i => Math.max(0, i-1))
+    } else if (e.key === 'Enter') {
+      e.preventDefault()
+      const opt = results[hoverIdx] ?? results[0]
+      if (opt) choose(opt)
+    } else if (e.key === 'Escape') {
+      setOpen(false)
+    }
+  }
+
+  return (
+    <label className="form-field" ref={boxRef} style={{ position:'relative' }}>
+      {label && <span>{label}</span>}
+      <input
+        value={query}
+        onChange={e=>{ setQuery(e.target.value); setOpen(true) }}
+        onFocus={()=> setOpen(true)}
+        onKeyDown={onKeyDown}
+        placeholder={placeholder}
+        autoComplete="off"
+      />
+      {open && results.length > 0 && (
+        <div
+          className="card"
+          style={{
+            position:'absolute', left:0, right:0, top:'100%', zIndex:20,
+            marginTop:4, maxHeight:280, overflow:'auto', padding:6
+          }}
+        >
+          {results.map((opt, idx)=>(
+            <div
+              key={getKey(opt)}
+              onMouseEnter={()=>setHoverIdx(idx)}
+              onMouseDown={(e)=> e.preventDefault()}
+              onClick={()=>choose(opt)}
+              style={{
+                padding:'8px 10px', borderRadius:10,
+                background: idx===hoverIdx ? 'rgba(0,0,0,0.05)' : 'transparent',
+                cursor:'pointer'
+              }}
+            >
+              {getLabel(opt)}
+            </div>
+          ))}
+        </div>
+      )}
+    </label>
+  )
+}
 
 export default function Pedidos() {
   const me = getUserFromToken()
   const puedeCrear = hasRole(me, 'PRODUCCION') || hasRole(me, 'JEFE') || hasRole(me, 'ADMINISTRADOR')
 
-  // ====== filtros ======
+  // filtros
   const [q, setQ] = useState('')
   const [state, setState] = useState('')
   const [from, setFrom] = useState('')
   const [to, setTo] = useState('')
+
+  // tabla
   const [loading, setLoading] = useState(true)
   const [rows, setRows] = useState([])
   const [msg, setMsg] = useState('')
 
-  // ====== catálogo básico para select (clientes y productos) - solo para crear rápido ======
+  // paginado
+  const pageSize = 30
+  const [page, setPage] = useState(0)
+  const [total, setTotal] = useState(0)
+
+  // catálogos
   const [customers, setCustomers] = useState([])
   const [products, setProducts] = useState([])
 
-  // ====== crear pedido (simple) ======
+  // crear pedido
   const [showCreate, setShowCreate] = useState(false)
   const [creating, setCreating] = useState(false)
   const [form, setForm] = useState({
     customerId: '',
-    lines: [
-      { productId: '', peso: '', presentacion: '' }
-    ]
+    customerLabel: '',
+    lines: [{ productId: '', productLabel:'', peso: '', presentacion: '' }]
   })
 
-  const fetchCatalogs = async () => {
-  try {
-    // clientes reales
-    const cs = await fetchCustomers({ q: '', limit: 500 })
-    setCustomers(Array.isArray(cs) ? cs : [])
-    // productos puedes dejarlos igual que ya los cargas
-    const pRes = await api.get('/api/catalog/products?limit=100').catch(() => ({ data: [] }))
-    setProducts(Array.isArray(pRes.data) ? pRes.data : [])
-  } catch {
-    setCustomers([])
-    setProducts([])
-  }
-}
-  const load = async () => {
-    setLoading(true)
-    setMsg('')
+  // cargar catálogos una vez
+  useEffect(() => {
+    (async ()=>{
+      try {
+        const cs = await fetchCustomers({ q: '', limit: 1000 })
+        setCustomers(Array.isArray(cs) ? cs : [])
+        const pRes = await api.get('/api/catalog/products?limit=1000').catch(()=>({ data: [] }))
+        setProducts(Array.isArray(pRes.data) ? pRes.data : [])
+      } catch {
+        setCustomers([]); setProducts([])
+      }
+    })()
+  }, [])
+
+  // fetch de pedidos (paginado)
+  const load = async ({ signal } = {}) => {
+    setLoading(true); setMsg('')
     try {
-      const data = await listOrders({
+      // Construir CSV de estados si hay
+      const stateCsv = state ? state : '' // uno solo; si luego permites múltiple, únelo con comas
+      const params = {
         q: q || undefined,
-        state: state || undefined,
-        from: from || undefined,
+        state: stateCsv || undefined,
+        from: from || undefined, // 👈 se envían por si el backend ya los soporta en /search
         to: to || undefined,
-        limit: 50
-      })
-      setRows(data)
+        limit: pageSize,
+        offset: page * pageSize
+      }
+      const data = await listOrdersCombined(params) // { items, total }
+      if (signal?.aborted) return
+      setRows(Array.isArray(data?.items) ? data.items : [])
+      setTotal(Number(data?.total || 0))
     } catch (e) {
+      if (signal?.aborted) return
       console.error(e)
       setMsg('Error cargando pedidos')
-    }     finally {
-      setLoading(false)
+      setRows([]); setTotal(0)
+    } finally {
+      if (!signal?.aborted) setLoading(false)
     }
   }
 
+  // búsqueda reactiva con debounce (q/state/from/to) y resetear página a 0
   useEffect(() => {
-    fetchCatalogs()
-    // primer fetch
-    load()
+    const controller = new AbortController()
+    const t = setTimeout(() => {
+      setPage(0) // reset
+      load({ signal: controller.signal })
+    }, 350)
+    return () => { controller.abort(); clearTimeout(t) }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [])
+  }, [q, state, from, to])
 
-  const onSearch = (e) => {
-    e.preventDefault()
-    load()
-  }
+  // recarga cuando cambia la página
+  useEffect(() => {
+    const controller = new AbortController()
+    load({ signal: controller.signal })
+    return () => controller.abort()
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [page])
 
-  // ====== crear pedido ======
+  const canPrev = page > 0
+  const canNext = (page + 1) * pageSize < total
+  const totalPages = Math.max(1, Math.ceil((total || 0) / pageSize))
+
+  // helpers form
   const addLine = () => {
-    setForm(f => ({ ...f, lines: [...f.lines, { productId: '', peso: '', presentacion: '' }] }))
+    setForm(f => ({ ...f, lines: [...f.lines, { productId: '', productLabel:'', peso: '', presentacion: '' }] }))
   }
   const removeLine = (idx) => {
     setForm(f => ({ ...f, lines: f.lines.filter((_, i) => i !== idx) }))
@@ -103,8 +258,7 @@ export default function Pedidos() {
   const submitCreate = async (e) => {
     e.preventDefault()
     if (!canSubmit) return
-    setCreating(true)
-    setMsg('')
+    setCreating(true); setMsg('')
     try {
       const payload = {
         customerId: Number(form.customerId),
@@ -116,8 +270,8 @@ export default function Pedidos() {
       }
       await createOrderApi(payload)
       setShowCreate(false)
-      // limpiar
-      setForm({ customerId: '', lines: [{ productId: '', peso: '', presentacion: '' }] })
+      setForm({ customerId: '', customerLabel:'', lines: [{ productId: '', productLabel:'', peso: '', presentacion: '' }] })
+      setPage(0)
       await load()
       setMsg('✅ Pedido creado')
     } catch (err) {
@@ -126,6 +280,9 @@ export default function Pedidos() {
       setCreating(false)
     }
   }
+
+  const customerLabel = (c) => `${c.razonSocial || c.RAZON_SOCIAL} — ${c.RUC}`
+  const productLabel  = (p) => p.name || p.DESCRIPCION || `Producto #${p.id}`
 
   return (
     <section className="card">
@@ -140,8 +297,8 @@ export default function Pedidos() {
         </div>
       </div>
 
-      {/* Filtros */}
-      <form onSubmit={onSearch} style={{ display: 'grid', gridTemplateColumns: '2fr 1fr 1fr 1fr auto', gap: 8, marginTop: 12 }}>
+      {/* Filtros (reactivos) */}
+      <div style={{ display: 'grid', gridTemplateColumns: '2fr 1fr 1fr 1fr', gap: 8, marginTop: 12 }}>
         <input placeholder="Buscar (cliente/RUC)" value={q} onChange={e => setQ(e.target.value)} />
         <select value={state} onChange={e => setState(e.target.value)}>
           <option value="">Estado</option>
@@ -152,51 +309,61 @@ export default function Pedidos() {
         </select>
         <input type="date" value={from} onChange={e => setFrom(e.target.value)} />
         <input type="date" value={to} onChange={e => setTo(e.target.value)} />
-        <button className="btn-secondary" type="submit">Filtrar</button>
-      </form>
+      </div>
 
       {msg && <div className="muted" style={{ marginTop: 8 }}>{msg}</div>}
 
-      {/* Nuevo pedido (simple) */}
+      {/* Nuevo pedido */}
       {showCreate && puedeCrear && (
         <div className="card" style={{ marginTop: 14 }}>
           <h4 style={{ marginTop: 0 }}>Crear pedido</h4>
           <form onSubmit={submitCreate} style={{ display: 'grid', gap: 12 }}>
-            <label>
-              Cliente
-              <select
-                value={form.customerId}
-                onChange={e => setForm(f => ({ ...f, customerId: e.target.value }))}
-                required
-              >
-                <option value="">— Selecciona —</option>
-                {customers.map(c => (
-                  <option key={c.id} value={c.id}>
-                    {c.razonSocial || c.RAZON_SOCIAL || `Cliente #${c.id}`}
-                  </option>
-                ))}
-              </select>
-            </label>
+            {/* Cliente */}
+            <Autocomplete
+              label="Cliente"
+              value={form.customerId}
+              display={form.customerLabel}
+              options={customers}
+              getLabel={customerLabel}
+              getKey={(c)=> c.id}
+              placeholder="Escribe RUC o Razón social…"
+              onChange={(id, obj)=> setForm(f=>({ ...f, customerId: id, customerLabel: customerLabel(obj) }))}
+            />
 
             <div className="muted">Líneas del pedido</div>
             {form.lines.map((ln, idx) => (
-              <div key={idx} className="form-row">
-                <label className="form-field">
-                  <span>Producto</span>
-                  <select value={ln.productId} onChange={e => setLine(idx, { productId: e.target.value })} required>
-                    <option value="">—</option>
-                    {products.map(p => (
-                      <option key={p.id} value={p.id}>{p.name || p.DESCRIPCION || `Producto #${p.id}`}</option>
-                    ))}
-                  </select>
-                </label>
+              <div key={idx} className="form-row" style={{ alignItems:'end' }}>
+                {/* Producto */}
+                <div style={{ flex:1 }}>
+                  <Autocomplete
+                    label="Producto"
+                    value={ln.productId}
+                    display={ln.productLabel}
+                    options={products}
+                    getLabel={productLabel}
+                    getKey={(p)=> p.id}
+                    placeholder="Escribe para buscar producto…"
+                    onChange={(id, obj)=> setLine(idx, { productId:id, productLabel: productLabel(obj) })}
+                  />
+                </div>
+
                 <label className="form-field">
                   <span>Peso (kg)</span>
-                  <input type="number" step="0.01" min="0.01" value={ln.peso} onChange={e => setLine(idx, { peso: e.target.value })} required />
+                  <input
+                    type="number" step="0.01" min="0.01"
+                    value={ln.peso}
+                    onChange={e => setLine(idx, { peso: e.target.value })}
+                    required
+                  />
                 </label>
                 <label className="form-field">
                   <span>Presentación</span>
-                  <input type="number" step="1" min="1" value={ln.presentacion} onChange={e => setLine(idx, { presentacion: e.target.value })} required />
+                  <input
+                    type="number" step="1" min="1"
+                    value={ln.presentacion}
+                    onChange={e => setLine(idx, { presentacion: e.target.value })}
+                    required
+                  />
                 </label>
                 <div className="form-actions" style={{ gap: 8 }}>
                   {form.lines.length > 1 && (
@@ -229,7 +396,7 @@ export default function Pedidos() {
           <div className="table__row" key={row.id}>
             <div>{new Date(row.fecha).toLocaleString()}</div>
             <div>{row.customerName}</div>
-            <div><span className="badge">{row.state}</span></div>
+            <div><span className={badgeClass(row.state)}>{row.state}</span></div>
             <div>
               <Link className="btn-secondary" to={`/app/pedidos/${row.id}`}>Ver</Link>
             </div>
@@ -237,6 +404,25 @@ export default function Pedidos() {
         ))}
         {loading && <div className="muted">Cargando…</div>}
         {!loading && rows.length === 0 && <div className="muted">Sin resultados</div>}
+      </div>
+
+      {/* Paginación */}
+      <div style={{ display:'flex', gap:8, marginTop:10, alignItems:'center' }}>
+        <button
+          className="btn-secondary"
+          disabled={!canPrev}
+          onClick={()=>setPage(p=>Math.max(0, p-1))}
+        >
+          Anterior
+        </button>
+        <div className="muted">Página {page+1} de {totalPages}</div>
+        <button
+          className="btn-secondary"
+          disabled={!canNext}
+          onClick={()=>setPage(p=>p+1)}
+        >
+          Siguiente
+        </button>
       </div>
     </section>
   )

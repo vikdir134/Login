@@ -72,6 +72,7 @@ export async function listAllDeliveries(req, res) {
     res.status(500).json({ error: 'Error listando entregas' })
   }
 }
+// backend/src/controllers/deliveries.controller.js
 export async function listDeliveries(req, res) {
   try {
     const schema = z.object({
@@ -93,27 +94,29 @@ export async function listDeliveries(req, res) {
     if (q) {
       where += ` AND (
         c.RAZON_SOCIAL LIKE ? OR
-        p.DESCRIPCION  LIKE ?
+        p.DESCRIPCION  LIKE ? OR
+        s.DESCRIPCION  LIKE ?
       ) `
-      params.push(`%${q}%`, `%${q}%`)
+      params.push(`%${q}%`, `%${q}%`, `%${q}%`)
     }
 
-    // total
+    // total (con JOIN a STATES para ser consistente con el listado)
     const [[{ total }]] = await pool.query(
       `
       SELECT COUNT(*) AS total
-      FROM ORDER_DELIVERY od
-      JOIN ORDERS o        ON o.ID_ORDER = od.ID_ORDER
-      JOIN CUSTOMERS c     ON c.ID_CUSTOMER = o.ID_CUSTOMER
-      LEFT JOIN DESCRIPTION_DELIVERY dd ON dd.ID_ORDER_DELIVERY = od.ID_ORDER_DELIVERY
-      LEFT JOIN DESCRIPTION_ORDER do2    ON do2.ID_DESCRIPTION_ORDER = dd.ID_DESCRIPTION_ORDER
-      LEFT JOIN PRODUCTS p               ON p.ID_PRODUCT = do2.ID_PRODUCT
+        FROM ORDER_DELIVERY od
+        JOIN ORDERS o            ON o.ID_ORDER = od.ID_ORDER
+        JOIN STATES s            ON s.ID_STATE = o.ID_STATE
+        JOIN CUSTOMERS c         ON c.ID_CUSTOMER = o.ID_CUSTOMER
+        LEFT JOIN DESCRIPTION_DELIVERY dd ON dd.ID_ORDER_DELIVERY = od.ID_ORDER_DELIVERY
+        LEFT JOIN DESCRIPTION_ORDER do2    ON do2.ID_DESCRIPTION_ORDER = dd.ID_DESCRIPTION_ORDER
+        LEFT JOIN PRODUCTS p               ON p.ID_PRODUCT = do2.ID_PRODUCT
       ${where}
       `,
       params
     )
 
-    // filas agregadas por entrega
+    // filas (AGREGADO: join a STATES y select de orderState)
     const [rows] = await pool.query(
       `
       SELECT
@@ -121,17 +124,19 @@ export async function listDeliveries(req, res) {
         od.ID_ORDER                 AS orderId,
         od.FECHA                    AS fecha,
         c.RAZON_SOCIAL              AS customerName,
-        SUM(dd.PESO)                AS pesoTotal,
-        SUM(IFNULL(dd.SUBTOTAL,0))  AS subtotalTotal,
-        MIN(dd.CURRENCY)            AS currency
+        s.DESCRIPCION               AS orderState,         -- << AQUÍ EL ESTADO
+        IFNULL(SUM(dd.PESO),0)      AS pesoTotal,
+        IFNULL(SUM(dd.SUBTOTAL),0)  AS subtotalTotal,
+        MIN(NULLIF(dd.CURRENCY,'')) AS currency
       FROM ORDER_DELIVERY od
-      JOIN ORDERS o        ON o.ID_ORDER = od.ID_ORDER
-      JOIN CUSTOMERS c     ON c.ID_CUSTOMER = o.ID_CUSTOMER
+      JOIN ORDERS o            ON o.ID_ORDER = od.ID_ORDER
+      JOIN STATES s            ON s.ID_STATE = o.ID_STATE
+      JOIN CUSTOMERS c         ON c.ID_CUSTOMER = o.ID_CUSTOMER
       LEFT JOIN DESCRIPTION_DELIVERY dd ON dd.ID_ORDER_DELIVERY = od.ID_ORDER_DELIVERY
       LEFT JOIN DESCRIPTION_ORDER do2    ON do2.ID_DESCRIPTION_ORDER = dd.ID_DESCRIPTION_ORDER
       LEFT JOIN PRODUCTS p               ON p.ID_PRODUCT = do2.ID_PRODUCT
       ${where}
-      GROUP BY od.ID_ORDER_DELIVERY, od.ID_ORDER, od.FECHA, c.RAZON_SOCIAL
+      GROUP BY od.ID_ORDER_DELIVERY, od.ID_ORDER, od.FECHA, c.RAZON_SOCIAL, s.DESCRIPCION
       ORDER BY od.FECHA DESC, od.ID_ORDER_DELIVERY DESC
       LIMIT ? OFFSET ?
       `,

@@ -4,14 +4,14 @@ import { useTheme } from '../theme/ThemeProvider'
 import { getUserFromToken, getInitials, getDisplayName } from '../utils/auth'
 
 const NAV_ITEMS = [
-  { to: '/app', label: 'Dashboard', icon: '🏠', end: true, roles: ['JEFE','ADMINISTRADOR'] },
-  { to: '/app/clientes', label: 'Clientes', icon: '👥', roles: ['JEFE','ADMINISTRADOR'] },
-  { to: '/app/pedidos', label: 'Pedidos', icon: '🧾', roles: ['PRODUCCION','JEFE','ADMINISTRADOR'] },
-  { to: '/app/almacen', label: 'Almacén', icon: '📦', roles: ['ALMACENERO','PRODUCCION','JEFE','ADMINISTRADOR'] },
-  { to: '/app/producto-terminado', label: 'Producto Terminado', icon: '🧱', roles: ['ALMACENERO','PRODUCCION','JEFE','ADMINISTRADOR'] },
-  { to: '/app/entregas', label: 'Entregas', icon: '🚚', roles: ['ALMACENERO','PRODUCCION','JEFE','ADMINISTRADOR'] },
-  { to: '/app/pagos', label: 'Pagos', icon: '💳', roles: ['JEFE','ADMINISTRADOR'] },
-  { to: '/app/compras', label: 'Compras', icon: '🧾', roles: ['ALMACENERO','JEFE','ADMINISTRADOR'] },
+  { to: '/app',              label: 'Dashboard',           icon: '🏠', roles: ['JEFE','ADMINISTRADOR'], end: true },
+  { to: '/app/clientes',     label: 'Clientes',            icon: '👥', roles: ['JEFE','ADMINISTRADOR'] },
+  { to: '/app/pedidos',      label: 'Pedidos',             icon: '🧾', roles: ['PRODUCCION','JEFE','ADMINISTRADOR'] },
+  { to: '/app/almacen',      label: 'Almacén',             icon: '📦', roles: ['ALMACENERO','PRODUCCION','JEFE','ADMINISTRADOR'] },
+  { to: '/app/entregas',     label: 'Entregas',            icon: '🚚', roles: ['ALMACENERO','PRODUCCION','JEFE','ADMINISTRADOR'] },
+  { to: '/app/cxc',          label: 'Cuentas x cobrar',    icon: '📒', roles: ['JEFE','ADMINISTRADOR'] },   // ← NUEVO
+  { to: '/app/pagos',        label: 'Pagos',               icon: '💳', roles: ['JEFE','ADMINISTRADOR'] },
+  { to: '/app/compras',      label: 'Compras',             icon: '🧾', roles: ['ALMACENERO','JEFE','ADMINISTRADOR'] },
   { to: '/app/registro-usuarios', label: 'Registro de usuarios', icon: '👤➕', roles: ['ADMINISTRADOR'] },
 ]
 

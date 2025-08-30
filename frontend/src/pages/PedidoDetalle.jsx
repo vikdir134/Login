@@ -1,5 +1,5 @@
 // src/pages/PedidoDetalle.jsx
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useState, useRef } from 'react'
 import { useParams, useNavigate } from 'react-router-dom'
 import { fetchOrder } from '../api/orders'
 import {
@@ -13,6 +13,10 @@ import { fetchDeliveriesByOrder } from '../api/deliveries'
 import { hasRole, getUserFromToken } from '../utils/auth'
 import api from '../api/axios'
 
+/** === Config === */
+const IGV = 0.18
+
+/** === Utils UI === */
 const badgeClass = (state) => {
   switch (String(state || '').toUpperCase()) {
     case 'PENDIENTE':   return 'badge badge--danger'
@@ -24,6 +28,120 @@ const badgeClass = (state) => {
 }
 const fmtKg = n => (Number(n) || 0).toFixed(2)
 const fmtMoney = n => (Number(n) || 0).toFixed(2)
+
+/** === helpers búsqueda === */
+const normalize = (s='') =>
+  s.normalize('NFD').replace(/\p{Diacritic}/gu,'').toLowerCase()
+function filterStartsThenIncludes(options, query, getLabel){
+  const q = normalize(query)
+  if (!q) return []
+  const starts = []
+  const includes = []
+  for (const opt of options){
+    const l = normalize(getLabel(opt))
+    if (l.startsWith(q)) starts.push(opt)
+    else if (l.includes(q)) includes.push(opt)
+  }
+  return [...starts, ...includes]
+}
+
+/** === Autocomplete ligero (sin libs) === */
+function Autocomplete({
+  label,
+  value,            // id actual (string|number|null)
+  display,          // texto mostrado
+  onChange,         // (id, obj) => void
+  options,          // array de objetos
+  getLabel,         // (opt) => string
+  getKey,           // (opt) => id
+  placeholder = 'Escribe para buscar…'
+}) {
+  const [open, setOpen] = useState(false)
+  const [query, setQuery] = useState(display || '')
+  const [hoverIdx, setHoverIdx] = useState(-1)
+  const boxRef = useRef(null)
+
+  useEffect(()=>{
+    const onDoc = (e)=>{
+      if (!boxRef.current) return
+      if (!boxRef.current.contains(e.target)) setOpen(false)
+    }
+    document.addEventListener('mousedown', onDoc)
+    return ()=> document.removeEventListener('mousedown', onDoc)
+  },[])
+
+  const results = useMemo(()=>{
+    if (!query) return []
+    return filterStartsThenIncludes(options, query, getLabel).slice(0, 20)
+  },[options, query, getLabel])
+
+  useEffect(()=>{ setQuery(display || '') }, [display])
+
+  const choose = (opt) => {
+    const id = getKey(opt)
+    const text = getLabel(opt)
+    onChange(id, opt)
+    setQuery(text)
+    setOpen(false)
+  }
+
+  const onKeyDown = (e) => {
+    if (!open && (e.key === 'ArrowDown' || e.key === 'Enter')) { setOpen(true); return }
+    if (!open) return
+    if (e.key === 'ArrowDown') {
+      e.preventDefault()
+      setHoverIdx(i => Math.min(results.length-1, i+1))
+    } else if (e.key === 'ArrowUp') {
+      e.preventDefault()
+      setHoverIdx(i => Math.max(0, i-1))
+    } else if (e.key === 'Enter') {
+      e.preventDefault()
+      const opt = results[hoverIdx] ?? results[0]
+      if (opt) choose(opt)
+    } else if (e.key === 'Escape') {
+      setOpen(false)
+    }
+  }
+
+  return (
+    <label className="form-field" ref={boxRef} style={{ position:'relative' }}>
+      {label && <span>{label}</span>}
+      <input
+        value={query}
+        onChange={e=>{ setQuery(e.target.value); setOpen(true) }}
+        onFocus={()=> setOpen(true)}
+        onKeyDown={onKeyDown}
+        placeholder={placeholder}
+        autoComplete="off"
+      />
+      {open && results.length > 0 && (
+        <div
+          className="card"
+          style={{
+            position:'absolute', left:0, right:0, top:'100%', zIndex:20,
+            marginTop:4, maxHeight:280, overflow:'auto', padding:6
+          }}
+        >
+          {results.map((opt, idx)=>(
+            <div
+              key={getKey(opt)}
+              onMouseEnter={()=>setHoverIdx(idx)}
+              onMouseDown={(e)=> e.preventDefault()}
+              onClick={()=>choose(opt)}
+              style={{
+                padding:'8px 10px', borderRadius:10,
+                background: idx===hoverIdx ? 'rgba(0,0,0,0.05)' : 'transparent',
+                cursor:'pointer'
+              }}
+            >
+              {getLabel(opt)}
+            </div>
+          ))}
+        </div>
+      )}
+    </label>
+  )
+}
 
 export default function PedidoDetalle() {
   const { id } = useParams()
@@ -41,7 +159,7 @@ export default function PedidoDetalle() {
   const [products, setProducts] = useState([])
 
   // UI: agregar línea
-  const [newLine, setNewLine] = useState({ productId:'', peso:'', presentacion:'' })
+  const [newLine, setNewLine] = useState({ productId:'', productLabel:'', peso:'', presentacion:'' })
   const canAddLine = newLine.productId && Number(newLine.peso)>0 && Number(newLine.presentacion)>0
 
   // UI: edición en línea
@@ -115,7 +233,7 @@ export default function PedidoDetalle() {
         peso: Number(newLine.peso),
         presentacion: Number(newLine.presentacion)
       })
-      setNewLine({ productId:'', peso:'', presentacion:'' })
+      setNewLine({ productId:'', productLabel:'', peso:'', presentacion:'' })
       await load()
       showToast('success', 'Línea agregada')
     } catch (err) {
@@ -206,7 +324,7 @@ export default function PedidoDetalle() {
           deliveryId: d.deliveryId,
           fecha: d.fecha,
           facturaId: d.facturaId ?? null,
-          invoiceCode: d.invoiceCode ?? null,   // ← requiere join a FACTURAS en backend
+          invoiceCode: d.invoiceCode ?? null,
           currency: d.currency || 'PEN',
           lines: []
         })
@@ -218,16 +336,15 @@ export default function PedidoDetalle() {
         unitPrice: d.unitPrice != null ? Number(d.unitPrice) : null,
         subtotal: Number(d.subtotal || 0),
         currency: d.currency || 'PEN',
-        descripcion: d.descripcion || null      // ← requiere seleccionar DESCRIPCION en backend
+        descripcion: d.descripcion || null
       })
     }
-    // calcula totales por grupo
     const arr = Array.from(map.values())
     for (const g of arr) {
       g.pesoTotal = g.lines.reduce((a, l) => a + (Number(l.peso) || 0), 0)
       g.subtotalTotal = g.lines.reduce((a, l) => a + (Number(l.subtotal) || 0), 0)
+      g.totalConIGV = +(g.subtotalTotal * (1 + IGV)).toFixed(2)
     }
-    // orden por fecha desc, luego deliveryId desc
     arr.sort((a,b) => {
       const ta = new Date(a.fecha).getTime()
       const tb = new Date(b.fecha).getTime()
@@ -241,10 +358,11 @@ export default function PedidoDetalle() {
   if (!order)  return <section className="card">Pedido no encontrado</section>
 
   const isCancelado = String(order.state).toUpperCase() === 'CANCELADO'
+  const productLabel = (p) => p.name || p.DESCRIPCION || `Producto #${p.id}`
 
   return (
     <section className="card" style={{ position:'relative' }}>
-      {/* Toast (notificación in-app) */}
+      {/* Toast */}
       {toast && (
         <div
           className={`toast ${toast.type}`}
@@ -349,16 +467,21 @@ export default function PedidoDetalle() {
       {puedeEditar && !isCancelado && (
         <div className="card" style={{ marginTop:14 }}>
           <h4 style={{ marginTop:0 }}>Agregar línea</h4>
-          <form onSubmit={submitAddLine} className="form-row">
-            <label className="form-field">
-              <span>Producto</span>
-              <select value={newLine.productId} onChange={e=>setNewLine(v=>({ ...v, productId: e.target.value }))} required>
-                <option value="">—</option>
-                {products.map(p => (
-                  <option key={p.id} value={p.id}>{p.name || p.DESCRIPCION || `Producto #${p.id}`}</option>
-                ))}
-              </select>
-            </label>
+          <form onSubmit={submitAddLine} className="form-row" style={{ alignItems:'end' }}>
+            {/* Autocomplete de Producto */}
+            <div style={{ flex:1 }}>
+              <Autocomplete
+                label="Producto"
+                value={newLine.productId}
+                display={newLine.productLabel}
+                options={products}
+                getLabel={productLabel}
+                getKey={(p)=> p.id}
+                placeholder="Escribe nombre/código…"
+                onChange={(id, obj)=> setNewLine(v=>({ ...v, productId: id, productLabel: productLabel(obj) }))}
+              />
+            </div>
+
             <label className="form-field">
               <span>Peso (kg)</span>
               <input
@@ -404,25 +527,30 @@ export default function PedidoDetalle() {
             </div>
             <div style={{ flex:1 }} />
             <div className="muted">
-              Total: {fmtKg(g.pesoTotal)} kg · {fmtMoney(g.subtotalTotal)} {g.currency}
+              Subtotal: {fmtMoney(g.subtotalTotal)} {g.currency} · <b>Total (c/IGV): {fmtMoney(g.totalConIGV)} {g.currency}</b>
             </div>
           </div>
 
           <div className="table" style={{ marginTop:10 }}>
-            <div className="table__head" style={{ gridTemplateColumns:'1fr 1fr 1fr 2fr' }}>
+            <div className="table__head" style={{ gridTemplateColumns:'1fr 1fr 1fr 1fr 2fr' }}>
               <div>Peso</div>
               <div>Precio</div>
               <div>Subtotal</div>
+              <div>Total</div>
               <div>Comentario</div>
             </div>
-            {g.lines.map((l, idx) => (
-              <div key={`${g.deliveryId}-${l.lineId}-${idx}`} className="table__row" style={{ gridTemplateColumns:'1fr 1fr 1fr 2fr' }}>
-                <div>{fmtKg(l.peso)} kg</div>
-                <div>{l.unitPrice != null ? fmtMoney(l.unitPrice) : '0.00'} {l.currency}</div>
-                <div>{fmtMoney(l.subtotal)} {l.currency}</div>
-                <div>{l.descripcion || <span className="muted">—</span>}</div>
-              </div>
-            ))}
+            {g.lines.map((l, idx) => {
+              const totalLinea = (Number(l.subtotal||0) * (1 + IGV))
+              return (
+                <div key={`${g.deliveryId}-${l.lineId}-${idx}`} className="table__row" style={{ gridTemplateColumns:'1fr 1fr 1fr 1fr 2fr' }}>
+                  <div>{fmtKg(l.peso)} kg</div>
+                  <div>{l.unitPrice != null ? fmtMoney(l.unitPrice) : '0.00'} {l.currency}</div>
+                  <div>{fmtMoney(l.subtotal)} {l.currency}</div>
+                  <div>{fmtMoney(totalLinea)} {l.currency}</div>
+                  <div>{l.descripcion || <span className="muted">—</span>}</div>
+                </div>
+              )
+            })}
           </div>
         </div>
       ))}

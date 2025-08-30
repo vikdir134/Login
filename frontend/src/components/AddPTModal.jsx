@@ -1,5 +1,5 @@
 // frontend/src/components/AddPTModal.jsx
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useState, useRef } from 'react'
 import {
   fetchProductsLite,
   fetchPrimaryMaterialsLite,
@@ -9,6 +9,116 @@ import { getProductComposition } from '../api/almacen' // tu helper existente
 
 const fmt = (n) => (Number(n)||0).toFixed(2)
 
+/* ─────────────────────────────────────────────────────────────
+   Helpers de etiquetas / normalizado
+   ───────────────────────────────────────────────────────────── */
+const normalize = (s='') => s.normalize('NFD').replace(/\p{Diacritic}/gu,'').toLowerCase()
+
+const getMaterialLabel = (m) => {
+  const id  = m?.id ?? m?.ID_PRIMATER
+  const mat = m?.material ?? m?.MATERIAL ?? ''
+  const col = m?.color ?? m?.COLOR ?? ''
+  const ds  = m?.descripcion ?? m?.DESCRIPCION ?? ''
+  const parts = [mat, col && `/${col}`, ds && `· ${ds}`].filter(Boolean)
+  const name = parts.join(' ')
+  return name ? `${name}` : `MP #${id}`
+}
+
+/* ─────────────────────────────────────────────────────────────
+   Autocomplete ligero para Materias Primas (por fila)
+   ───────────────────────────────────────────────────────────── */
+function MPAutocomplete({ value, onChange, materials, label="Materia Prima", placeholder="Escribe para buscar MP…" }) {
+  const ref = useRef(null)
+  const [open, setOpen] = useState(false)
+  const [query, setQuery] = useState('')
+  const [hoverIdx, setHoverIdx] = useState(-1)
+
+  // cerrar al click afuera
+  useEffect(()=>{
+    const h = (e) => { if (ref.current && !ref.current.contains(e.target)) setOpen(false) }
+    document.addEventListener('mousedown', h)
+    return () => document.removeEventListener('mousedown', h)
+  },[])
+
+  // etiqueta del seleccionado actual
+  const current = useMemo(() => materials.find(m => (m.id ?? m.ID_PRIMATER) === Number(value)), [materials, value])
+  const currentLabel = current ? getMaterialLabel(current) : ''
+
+  // resultados
+  const results = useMemo(()=>{
+    const q = normalize(query)
+    if (!q) return []
+    const list = materials.map(m => ({ m, label: getMaterialLabel(m) }))
+    const starts = []
+    const includes = []
+    for (const it of list){
+      const lbl = normalize(it.label)
+      if (lbl.startsWith(q)) starts.push(it)
+      else if (lbl.includes(q)) includes.push(it)
+    }
+    return [...starts, ...includes].slice(0, 30)
+  }, [materials, query])
+
+  const choose = (opt) => {
+    const id = opt?.m?.id ?? opt?.m?.ID_PRIMATER
+    onChange?.(String(id))
+    setQuery(getMaterialLabel(opt.m))
+    setOpen(false)
+  }
+
+  const onKeyDown = (e) => {
+    if (!open && (e.key === 'ArrowDown' || e.key === 'Enter')) { setOpen(true); return }
+    if (!open) return
+    if (e.key === 'ArrowDown') { e.preventDefault(); setHoverIdx(i => Math.min(results.length-1, i+1)) }
+    else if (e.key === 'ArrowUp') { e.preventDefault(); setHoverIdx(i => Math.max(0, i-1)) }
+    else if (e.key === 'Enter') { e.preventDefault(); const opt = results[hoverIdx] ?? results[0]; if (opt) choose(opt) }
+    else if (e.key === 'Escape') { setOpen(false) }
+  }
+
+  return (
+    <label className="form-field" ref={ref} style={{ position:'relative' }}>
+      <span>{label}</span>
+      <input
+        value={open ? query : (query || currentLabel)}
+        onChange={e=>{ setQuery(e.target.value); setOpen(true) }}
+        onFocus={()=> setOpen(true)}
+        onKeyDown={onKeyDown}
+        placeholder={placeholder}
+        autoComplete="off"
+      />
+      {open && results.length > 0 && (
+        <div
+          className="card"
+          style={{
+            position:'absolute', left:0, right:0, top:'100%', zIndex:25,
+            marginTop:4, maxHeight:320, overflow:'auto', padding:6
+          }}
+        >
+          {results.map((opt, idx)=>(
+            <div
+              key={opt.m.id ?? opt.m.ID_PRIMATER}
+              onMouseEnter={()=>setHoverIdx(idx)}
+              onMouseDown={(e)=> e.preventDefault()}
+              onClick={()=>choose(opt)}
+              style={{
+                padding:'8px 10px', borderRadius:10,
+                background: idx===hoverIdx ? 'rgba(0,0,0,.06)' : 'transparent',
+                cursor:'pointer'
+              }}
+              title={opt.label}
+            >
+              {opt.label}
+            </div>
+          ))}
+        </div>
+      )}
+    </label>
+  )
+}
+
+/* ─────────────────────────────────────────────────────────────
+   Componente principal
+   ───────────────────────────────────────────────────────────── */
 export default function AddPTModal({ open, onClose, defaultZoneId, onDone }) {
   const [products, setProducts] = useState([])
   const [materials, setMaterials] = useState([])
@@ -38,35 +148,37 @@ export default function AddPTModal({ open, onClose, defaultZoneId, onDone }) {
     setConsumos([{ primaterId:'', peso:'' }])
   }, [open])
 
-  // cargar composición al elegir producto (si falla → [])
+  // cargar composición al elegir producto
   useEffect(() => {
-  if (!productId) {
-    setComposition([])
-    setUseComposition(false)     // ← forza manual si no hay producto
-    return
-  }
-  getProductComposition(productId)
-    .then(rows => {
-      const list = Array.isArray(rows) ? rows : []
-      setComposition(list)
-      setUseComposition(list.length > 0)  // ← si no hay comp, desmarca el check
-    })
-    .catch(() => {
+    if (!productId) {
       setComposition([])
-      setUseComposition(false)   // ← en error también manual
-    })
-}, [productId])
+      setUseComposition(false)
+      return
+    }
+    getProductComposition(productId)
+      .then(rows => {
+        const list = Array.isArray(rows) ? rows : []
+        setComposition(list)
+        setUseComposition(list.length > 0)
+      })
+      .catch(() => { setComposition([]); setUseComposition(false) })
+  }, [productId])
 
+  // auto-consumos desde composición
   const autoConsumptions = useMemo(() => {
     const total = Number(peso || 0)
     if (!total || !composition.length) return []
-    return composition.map(c => ({
-      primaterId: Number(c.primaterId || c.ID_PRIMATER),
-      zone: String(c.zone || c.ZONE || 'PRODUCCION'),
-      percentage: Number(c.percentage || c.PERCENTAGE || 0),
-      qty: +(total * (Number(c.percentage || c.PERCENTAGE || 0) / 100)).toFixed(2)
-    }))
-  }, [peso, composition])
+    return composition.map(c => {
+      const primId = Number(c.primaterId || c.ID_PRIMATER)
+      const perc   = Number(c.percentage || c.PERCENTAGE || 0)
+      const zone   = String(c.zone || c.ZONE || 'PRODUCCION')
+      const qty    = +(total * (perc / 100)).toFixed(2)
+      // buscar nombre en catálogo de MP
+      const mp = materials.find(m => (m.id ?? m.ID_PRIMATER) === primId)
+      const mpLabel = mp ? getMaterialLabel(mp) : `MP #${primId}`
+      return { primaterId: primId, zone, percentage: perc, qty, mpLabel }
+    })
+  }, [peso, composition, materials])
 
   const manualSum = useMemo(
     () => consumos.reduce((a, c) => a + Number(c.peso || 0), 0),
@@ -78,7 +190,6 @@ export default function AddPTModal({ open, onClose, defaultZoneId, onDone }) {
     if (!useComposition) {
       if (!consumos.length) return false
       if (consumos.some(c => !c.primaterId || !(Number(c.peso) > 0))) return false
-      // suma manual no debe exceder peso total
       if (manualSum - Number(peso) > 1e-9) return false
     }
     return true
@@ -158,7 +269,7 @@ export default function AddPTModal({ open, onClose, defaultZoneId, onDone }) {
               type="checkbox"
               checked={useComposition}
               onChange={e => setUseComposition(e.target.checked)}
-              disabled={!composition.length}   // ← sin comp, no se puede activar
+              disabled={!composition.length}
             />
             <span>Usar composición del producto (si existe)</span>
           </label>
@@ -167,14 +278,14 @@ export default function AddPTModal({ open, onClose, defaultZoneId, onDone }) {
             <div className="card" style={{ background:'transparent', border:'1px dashed var(--border)' }}>
               <div className="muted" style={{ marginBottom:6 }}>Consumo automático (desde zona indicada, por defecto Producción):</div>
               <div className="table">
-                <div className="table__head" style={{ gridTemplateColumns:'2fr 1fr 1fr' }}>
+                <div className="table__head" style={{ gridTemplateColumns:'2fr .7fr 1fr' }}>
                   <div>Materia prima</div>
                   <div>%</div>
                   <div>Consumo (kg)</div>
                 </div>
                 {autoConsumptions.map((c, i) => (
-                  <div key={i} className="table__row" style={{ gridTemplateColumns:'2fr 1fr 1fr' }}>
-                    <div>MP #{c.primaterId} ({c.zone})</div>
+                  <div key={i} className="table__row" style={{ gridTemplateColumns:'2fr .7fr 1fr' }}>
+                    <div>{c.mpLabel} <span className="muted">({c.zone})</span></div>
                     <div>{fmt(c.percentage)}%</div>
                     <div>{fmt(c.qty)}</div>
                   </div>
@@ -186,30 +297,35 @@ export default function AddPTModal({ open, onClose, defaultZoneId, onDone }) {
           {!useComposition && (
             <>
               <div className="muted">Consumos de MP (manual). Suma actual: <b>{fmt(manualSum)} / {fmt(peso)} kg</b></div>
-              {consumos.map((c, i) => (
-                <div key={i} className="form-row" style={{ gridTemplateColumns:'2fr 1fr auto' }}>
-                  <label className="form-field">
-                    <span>Materia Prima</span>
-                    <select value={c.primaterId} onChange={e => setConsumo(i, { primaterId: e.target.value })} required>
-                      <option value="">—</option>
-                      {materials.map(m => {
-                        const id  = m.id || m.ID_PRIMATER
-                        const mat = m.material || m.MATERIAL || ''
-                        const col = m.color || m.COLOR || ''
-                        const ds  = m.descripcion || m.DESCRIPCION || ''
-                        return <option key={id} value={id}>{`${mat}${col ? ' / '+col : ''}${ds ? ' · '+ds : ''}`}</option>
-                      })}
-                    </select>
-                  </label>
-                  <label className="form-field">
-                    <span>Peso (kg)</span>
-                    <input type="number" step="0.01" min="0.01" value={c.peso} onChange={e => setConsumo(i, { peso: e.target.value })} required />
-                  </label>
-                  <div className="form-actions">
-                    {consumos.length > 1 && <button type="button" className="btn-secondary" onClick={()=>removeConsumo(i)}>Quitar</button>}
+              {consumos.map((c, i) => {
+                const selected = materials.find(m => (m.id ?? m.ID_PRIMATER) === Number(c.primaterId))
+                return (
+                  <div key={i} className="form-row" style={{ gridTemplateColumns:'2fr 1fr auto' }}>
+                    {/* Buscador reactivo de MP */}
+                    <MPAutocomplete
+                      materials={materials}
+                      value={c.primaterId}
+                      onChange={(id)=> setConsumo(i, { primaterId: id })}
+                      label="Materia Prima"
+                      placeholder="Escribe para buscar MP…"
+                    />
+                    <label className="form-field">
+                      <span>Peso (kg)</span>
+                      <input
+                        type="number" step="0.01" min="0.01"
+                        value={c.peso}
+                        onChange={e => setConsumo(i, { peso: e.target.value })}
+                        required
+                      />
+                    </label>
+                    <div className="form-actions">
+                      {consumos.length > 1 && (
+                        <button type="button" className="btn-secondary" onClick={()=>removeConsumo(i)}>Quitar</button>
+                      )}
+                    </div>
                   </div>
-                </div>
-              ))}
+                )
+              })}
               <button type="button" className="btn-secondary" onClick={addConsumo}>+ Consumo</button>
               {manualSum - Number(peso) > 1e-9 && (
                 <div className="error">La suma manual no puede superar el peso total.</div>

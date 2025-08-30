@@ -6,6 +6,7 @@ import { fetchDeliveriesByOrder } from '../api/deliveries'
 import { hasRole, getUserFromToken } from '../utils/auth'
 import CreateDeliveryModal from '../components/CreateDeliveryModal'
 
+const IGV = 0.18
 const fmtKg = n => (Number(n)||0).toFixed(2)
 const fmtMoney = n => (Number(n)||0).toFixed(2)
 
@@ -58,16 +59,21 @@ export default function EntregaDetalle() {
   const entregadoTotal  = useMemo(() => lines.reduce((a, l) => a + l.entregado, 0), [lines])
   const avanceCalc = pedidoPesoTotal ? Math.min(100, (entregadoTotal / pedidoPesoTotal) * 100) : 0
 
-  // AGRUPAR entregas por deliveryId
+  // AGRUPAR entregas por deliveryId + totales
   const deliveriesGrouped = useMemo(() => {
     const map = new Map()
     for (const r of deliveries) {
       const k = r.deliveryId
-      if (!map.has(k)) map.set(k, { deliveryId: k, fecha: r.fecha, facturaId: r.facturaId, invoiceCode: r.invoiceCode, lines: [] })
+      if (!map.has(k)) map.set(k, { deliveryId: k, fecha: r.fecha, facturaId: r.facturaId, invoiceCode: r.invoiceCode, currency: r.currency || 'PEN', lines: [] })
       map.get(k).lines.push(r)
     }
+    const arr = Array.from(map.values()).map(g => {
+      const subtotal = g.lines.reduce((a,r)=> a + Number(r.subtotal||0), 0)
+      const totalConIGV = +(subtotal * (1 + IGV)).toFixed(2)
+      return { ...g, subtotal, totalConIGV }
+    })
     // ordenar por fecha desc
-    return Array.from(map.values()).sort((a,b)=> new Date(b.fecha) - new Date(a.fecha))
+    return arr.sort((a,b)=> new Date(b.fecha) - new Date(a.fecha))
   }, [deliveries])
 
   const badgeClass = (state) => {
@@ -83,8 +89,11 @@ export default function EntregaDetalle() {
   if (loading) return <section className="card">Cargando…</section>
   if (!order)  return <section className="card">Pedido no encontrado</section>
 
+  // colores suaves compatibles con modo claro/oscuro
+  const textMuted = 'var(--muted, #6b7280)'
+
   return (
-    <section className="card">
+    <section className="card" style={{ background:'var(--bg)', color:'var(--text)' }}>
       <div className="topbar" style={{ marginBottom:0 }}>
         <h3 style={{ margin:0 }}>Pedido #{order.id}</h3>
         <div style={{ display:'flex', gap:8 }}>
@@ -95,7 +104,7 @@ export default function EntregaDetalle() {
         </div>
       </div>
 
-      <div className="muted" style={{ marginTop:6 }}>
+      <div className="muted" style={{ marginTop:6, color: textMuted }}>
         {order.customerName} · {new Date(order.fecha).toLocaleString()} · <span className={badgeClass(order.state)}>{order.state}</span>
       </div>
 
@@ -104,7 +113,7 @@ export default function EntregaDetalle() {
         <div className="progress__bar">
           <div className="progress__bar_fill" style={{ width: `${(order.avanceEntrega ?? avanceCalc).toFixed(2)}%` }} />
         </div>
-        <div className="muted">
+        <div className="muted" style={{ color: textMuted }}>
           Entregado: {fmtKg(entregadoTotal)} / {fmtKg(pedidoPesoTotal)} kg
         </div>
       </div>
@@ -133,34 +142,42 @@ export default function EntregaDetalle() {
       {deliveriesGrouped.length === 0 && <div className="muted">Sin entregas</div>}
       {deliveriesGrouped.map(grp => (
         <div key={grp.deliveryId} className="card" style={{ marginTop:8 }}>
-          <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center' }}>
+          <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center', gap:12, flexWrap:'wrap' }}>
             <div>
               <b>Entrega #{grp.deliveryId}</b> · {new Date(grp.fecha).toLocaleString()}
             </div>
-            <div className="muted">
+            <div className="muted" style={{ color: textMuted }}>
               Factura: <b>{grp.invoiceCode ? grp.invoiceCode : '—'}</b>
+            </div>
+            <div style={{ flex:1 }} />
+            <div className="muted" style={{ color: textMuted }}>
+              Subtotal: {fmtMoney(grp.subtotal)} {grp.currency} · <b>Total (c/IGV): {fmtMoney(grp.totalConIGV)} {grp.currency}</b>
             </div>
           </div>
 
           <div className="table" style={{ marginTop:10 }}>
-            <div className="table__head">
+            <div className="table__head" style={{ gridTemplateColumns:'1fr 1fr 1fr 1fr' }}>
               <div>Peso</div>
               <div>Precio</div>
               <div>Subtotal</div>
+              <div>Total</div>
             </div>
-            {grp.lines.map((d, idx) => (
-              <div className="table__row" key={`${d.deliveryId}-${d.lineId}-${idx}`}>
-                <div>{fmtKg(d.peso)} kg</div>
-                <div>{d.unitPrice ? fmtMoney(d.unitPrice) : '0.00'} {d.currency || ''}</div>
-                <div>{fmtMoney(d.subtotal)} {d.currency || ''}</div>
-              </div>
-            ))}
+            {grp.lines.map((d, idx) => {
+              const totalLinea = (Number(d.subtotal||0) * (1 + IGV))
+              return (
+                <div className="table__row" key={`${d.deliveryId}-${d.lineId}-${idx}`} style={{ gridTemplateColumns:'1fr 1fr 1fr 1fr' }}>
+                  <div>{fmtKg(d.peso)} kg</div>
+                  <div>{d.unitPrice ? fmtMoney(d.unitPrice) : '0.00'} {d.currency || ''}</div>
+                  <div>{fmtMoney(d.subtotal)} {d.currency || ''}</div>
+                  <div>{fmtMoney(totalLinea)} {d.currency || ''}</div>
+                </div>
+              )
+            })}
             <div className="table__row" style={{ fontWeight:700 }}>
               <div>Total</div>
               <div />
-              <div>
-                {fmtMoney(grp.lines.reduce((a,r)=>a+Number(r.subtotal||0),0))} {grp.lines[0]?.currency || ''}
-              </div>
+              <div>{fmtMoney(grp.subtotal)} {grp.currency}</div>
+              <div>{fmtMoney(grp.totalConIGV)} {grp.currency}</div>
             </div>
           </div>
         </div>

@@ -1,6 +1,6 @@
 // src/pages/Compras.jsx
 import { useEffect, useMemo, useState } from 'react'
-import { listSuppliers, createSupplier } from '../api/suppliers'
+import { listSuppliers } from '../api/suppliers'
 import { listPrimaryMaterials } from '../api/primary-materials'
 import { listPurchases, createPurchase, getPurchase } from '../api/purchases'
 import { hasRole, getUserFromToken } from '../utils/auth'
@@ -8,6 +8,24 @@ import AddSupplierModal from '../components/AddSupplierModal'
 
 const DOC_TYPES = ['FACTURA', 'BOLETA', 'GUIA', 'OTRO']
 const IGV_RATE = 0.18
+const n = (v) => (v == null ? 0 : Number(v))
+
+// Intenta obtener el TOTAL (con IGV) de una fila de la grilla
+function getRowTotal(r) {
+  if (r.totalAmount != null) return Number(r.totalAmount)
+  if (r.TOTAL_AMOUNT != null) return Number(r.TOTAL_AMOUNT)
+
+  const net =
+    r.netAmount ?? r.NET_AMOUNT ??
+    r.subTotal ?? r.SUBTOTAL ?? r.neto ?? r.NETO
+  const tax =
+    r.taxAmount ?? r.TAX_AMOUNT ??
+    r.igv ?? r.IGV
+
+  if (net != null && tax != null) return Number(net) + Number(tax)
+  if (net != null) return Number(net) * (1 + IGV_RATE)
+  return 0
+}
 
 export default function Compras() {
   const me = getUserFromToken()
@@ -42,6 +60,38 @@ export default function Compras() {
     notes: '',
     items: [{ primaterId: '', quantity: '', unitPrice: '' }]
   })
+
+  // búsqueda reactiva proveedor (en el form)
+  const [supplierQuery, setSupplierQuery] = useState('')
+  const filteredSuppliers = useMemo(() => {
+    const q = supplierQuery.trim().toLowerCase()
+    if (!q) return suppliers
+    return suppliers.filter(s => {
+      const name = (s.name || s.NAME || '').toLowerCase()
+      const id = String(s.id || s.ID_SUPPLIER || '')
+      return name.includes(q) || id.includes(q)
+    })
+  }, [suppliers, supplierQuery])
+
+  // búsqueda reactiva materia prima por ítem
+  const [materialQueries, setMaterialQueries] = useState([''])
+  const setMaterialQuery = (idx, val) =>
+    setMaterialQueries((arr) => {
+      const next = arr.slice()
+      next[idx] = val
+      return next
+    })
+  const getFilteredMaterials = (idx) => {
+    const q = (materialQueries[idx] || '').trim().toLowerCase()
+    if (!q) return materials
+    return materials.filter(m => {
+      const ds = (m.descripcion || m.DESCRIPCION || '').toLowerCase()
+      const mat = (m.material || m.MATERIAL || '').toLowerCase()
+      const col = (m.color || m.COLOR || '').toLowerCase()
+      const id = String(m.id || m.ID_PRIMATER || '')
+      return ds.includes(q) || mat.includes(q) || col.includes(q) || id.includes(q)
+    })
+  }
 
   // ====== cálculos automáticos (NETO / IGV / TOTAL) ======
   const itemsPrepared = useMemo(() => {
@@ -108,8 +158,14 @@ export default function Compras() {
     ...f,
     items: f.items.map((it, i) => i === idx ? { ...it, ...patch } : it)
   }))
-  const addItem = () => setForm(f => ({ ...f, items: [...f.items, { primaterId: '', quantity: '', unitPrice: '' }] }))
-  const removeItem = (idx) => setForm(f => ({ ...f, items: f.items.filter((_, i) => i !== idx) }))
+  const addItem = () => {
+    setForm(f => ({ ...f, items: [...f.items, { primaterId: '', quantity: '', unitPrice: '' }] }))
+    setMaterialQueries(arr => [...arr, ''])
+  }
+  const removeItem = (idx) => {
+    setForm(f => ({ ...f, items: f.items.filter((_, i) => i !== idx) }))
+    setMaterialQueries(arr => arr.filter((_, i) => i !== idx))
+  }
 
   const canSubmit = useMemo(() => {
     const headOk = form.supplierId && form.documentType && form.documentNumber && form.documentDate
@@ -156,6 +212,7 @@ export default function Compras() {
         notes: '',
         items: [{ primaterId: '', quantity: '', unitPrice: '' }]
       })
+      setMaterialQueries([''])
       load()
     } catch (err) {
       console.error(err)
@@ -184,6 +241,26 @@ export default function Compras() {
     } finally {
       setLoadingExpanded(false)
     }
+  }
+
+  // totales desde header+items (para el footer del expand)
+  function computeTotalsFromHeader(header, items) {
+    const currency = header?.currency || header?.CURRENCY || 'PEN'
+    let net = header?.netAmount ?? header?.NET_AMOUNT ?? header?.subTotal ?? header?.SUBTOTAL
+    let igv = header?.taxAmount ?? header?.TAX_AMOUNT ?? header?.igv ?? header?.IGV
+    let total = header?.totalAmount ?? header?.TOTAL_AMOUNT
+
+    if (net == null || igv == null || total == null) {
+      const netItems = Array.isArray(items)
+        ? items.reduce((a, it) => a + (n(it.totalPrice ?? it.TOTAL_PRICE) || (n(it.quantity || it.QUANTITY) * n(it.unitPrice || it.UNIT_PRICE))), 0)
+        : 0
+      const igvItems = +(netItems * IGV_RATE).toFixed(2)
+      const totalItems = +(netItems + igvItems).toFixed(2)
+      net = net ?? netItems
+      igv = igv ?? igvItems
+      total = total ?? totalItems
+    }
+    return { currency, net: Number(net||0), igv: Number(igv||0), total: Number(total||0) }
   }
 
   return (
@@ -231,17 +308,27 @@ export default function Compras() {
           <h4 style={{ marginTop:0 }}>Registrar compra</h4>
 
           <form onSubmit={onSubmit} style={{ display:'grid', gap:12 }}>
+            {/* proveedor + buscador reactivo */}
             <div className="form-row" style={{ gridTemplateColumns:'2fr 1fr 1fr 1fr' }}>
               <label className="form-field">
                 <span>Proveedor</span>
                 <select value={form.supplierId} onChange={e => setField({ supplierId: e.target.value })} required>
                   <option value="">—</option>
-                  {suppliers.map(s => (
+                  {filteredSuppliers.map(s => (
                     <option key={s.id || s.ID_SUPPLIER} value={s.id || s.ID_SUPPLIER}>
                       {s.name || s.NAME}
                     </option>
                   ))}
                 </select>
+              </label>
+
+              <label className="form-field">
+                <span>Buscar proveedor</span>
+                <input
+                  placeholder="Filtrar por nombre o ID…"
+                  value={supplierQuery}
+                  onChange={e => setSupplierQuery(e.target.value)}
+                />
               </label>
 
               <label className="form-field">
@@ -252,17 +339,17 @@ export default function Compras() {
               </label>
 
               <label className="form-field">
-                <span>Nro. doc.</span>
-                <input value={form.documentNumber} onChange={e => setField({ documentNumber: e.target.value })} required />
-              </label>
-
-              <label className="form-field">
                 <span>Fecha</span>
                 <input type="date" value={form.documentDate} onChange={e => setField({ documentDate: e.target.value })} required />
               </label>
             </div>
 
-            <div className="form-row" style={{ gridTemplateColumns:'1fr 2fr' }}>
+            <div className="form-row" style={{ gridTemplateColumns:'2fr 1fr 1fr' }}>
+              <label className="form-field">
+                <span>Nro. doc.</span>
+                <input value={form.documentNumber} onChange={e => setField({ documentNumber: e.target.value })} required />
+              </label>
+
               <label className="form-field">
                 <span>Moneda</span>
                 <select value={form.currency} onChange={e => setField({ currency: e.target.value })}>
@@ -270,6 +357,7 @@ export default function Compras() {
                   <option value="USD">USD</option>
                 </select>
               </label>
+
               <label className="form-field">
                 <span>Notas</span>
                 <input value={form.notes} onChange={e => setField({ notes: e.target.value })} placeholder="Opcional" />
@@ -281,18 +369,26 @@ export default function Compras() {
               const q = Number(it.quantity || 0)
               const p = Number(it.unitPrice || 0)
               const line = q * p
+              const mats = getFilteredMaterials(idx)
+
               return (
                 <div key={idx} className="form-row" style={{ gridTemplateColumns:'2fr 1fr 1fr auto' }}>
                   <label className="form-field">
                     <span>Materia prima</span>
                     <select value={it.primaterId} onChange={e => setItem(idx, { primaterId: e.target.value })} required>
                       <option value="">—</option>
-                      {materials.map(m => (
+                      {mats.map(m => (
                         <option key={m.id || m.ID_PRIMATER} value={m.id || m.ID_PRIMATER}>
                           {m.descripcion || m.DESCRIPCION || `MP #${m.id || m.ID_PRIMATER}`}
                         </option>
                       ))}
                     </select>
+                    <input
+                      style={{ marginTop:6 }}
+                      placeholder="Filtrar MP…"
+                      value={materialQueries[idx] || ''}
+                      onChange={(e)=>setMaterialQuery(idx, e.target.value)}
+                    />
                   </label>
 
                   <label className="form-field">
@@ -316,7 +412,7 @@ export default function Compras() {
                   </label>
 
                   <div className="form-actions">
-                    <div className="badge">{line.toFixed(2)}</div>
+                    <div className="badge" title="Subtotal">{line.toFixed(2)}</div>
                   </div>
 
                   {form.items.length > 1 && (
@@ -358,47 +454,75 @@ export default function Compras() {
         {!loading && rows.map((r) => {
           const id = r.id || r.ID_PURCHASE
           const isOpen = expandedId === id
+          const currency = r.currency || r.CURRENCY || 'PEN'
+          const totalDisplay = getRowTotal(r)
+
           return (
             <div key={id} style={{ display:'contents' }}>
               <div
                 className="table__row"
                 style={{ gridTemplateColumns:'1fr 1.2fr 1.2fr 1fr', cursor:'pointer' }}
                 onClick={() => toggleExpand(r)}
-                title="Ver ítems"
+                title="Ver detalle"
               >
                 <div>{new Date(r.documentDate || r.DOCUMENT_DATE).toLocaleDateString()}</div>
                 <div>{r.supplierName || r.SUPPLIER_NAME || r.proveedor || r.NAME}</div>
                 <div>{`${r.documentType || r.DOCUMENT_TYPE || ''} ${r.documentNumber || r.DOCUMENT_NUMBER || ''}`.trim()}</div>
-                <div>{Number(r.totalAmount || r.TOTAL_AMOUNT || 0).toFixed(2)} {r.currency || r.CURRENCY || ''}</div>
+                <div>{totalDisplay.toFixed(2)} {currency}</div>
               </div>
 
               {isOpen && (
                 <div className="table__row" style={{ gridColumn:'1 / -1' }}>
-                  {loadingExpanded && <div className="muted">Cargando ítems…</div>}
-                  {!loadingExpanded && expandedData?.items && expandedData.items.length > 0 && (
+                  {loadingExpanded && <div className="muted">Cargando detalle…</div>}
+                  {!loadingExpanded && expandedData?.items && (
                     <div style={{ width:'100%' }}>
-                      <div className="muted" style={{ marginBottom:8 }}>
-                        Ítems de la compra #{id}
-                      </div>
                       <div className="table">
-                        <div className="table__head" style={{ gridTemplateColumns:'2fr 1fr 1fr 1fr' }}>
+                        <div className="table__head" style={{ gridTemplateColumns:'2fr 1fr 1fr 1fr 1fr' }}>
                           <div>Materia prima</div>
                           <div>Cantidad (kg)</div>
                           <div>Unitario</div>
+                          <div>Subtotal</div>
                           <div>Total</div>
                         </div>
-                        {expandedData.items.map((it, i) => (
-                          <div className="table__row" key={i} style={{ gridTemplateColumns:'2fr 1fr 1fr 1fr' }}>
-                            <div>{it.material || it.MATERIAL || it.descripcion || it.DESCRIPCION || `MP #${it.primaterId || it.ID_PRIMATER}`}</div>
-                            <div>{Number(it.quantity || it.QUANTITY).toFixed(2)}</div>
-                            <div>{Number(it.unitPrice || it.UNIT_PRICE).toFixed(2)} {expandedData.header?.currency || 'PEN'}</div>
-                            <div>{Number(it.totalPrice || it.TOTAL_PRICE).toFixed(2)} {expandedData.header?.currency || 'PEN'}</div>
-                          </div>
-                        ))}
+
+                        {expandedData.items.length > 0 ? expandedData.items.map((it, i) => {
+                          const qty = n(it.quantity || it.QUANTITY)
+                          const unit = n(it.unitPrice || it.UNIT_PRICE)
+                          const sub = n(it.totalPrice || it.TOTAL_PRICE || qty * unit)
+                          const tot = +(sub * (1 + IGV_RATE)).toFixed(2)
+                          return (
+                            <div className="table__row" key={i} style={{ gridTemplateColumns:'2fr 1fr 1fr 1fr 1fr' }}>
+                              <div>{it.material || it.MATERIAL || it.descripcion || it.DESCRIPCION || `MP #${it.primaterId || it.ID_PRIMATER}`}</div>
+                              <div>{qty.toFixed(2)}</div>
+                              <div>{unit.toFixed(2)} {expandedData.header?.currency || 'PEN'}</div>
+                              <div>{sub.toFixed(2)} {expandedData.header?.currency || 'PEN'}</div>
+                              <div>{tot.toFixed(2)} {expandedData.header?.currency || 'PEN'}</div>
+                            </div>
+                          )
+                        }) : <div className="muted">Sin ítems</div>}
+
+                        {/* Footer de totales */}
+                        {(() => {
+                          const { currency, net, igv, total } = computeTotalsFromHeader(expandedData.header, expandedData.items)
+                          return (
+                            <div className="table__row" style={{ gridTemplateColumns:'2fr 1fr 1fr 1fr 1fr', fontWeight:700 }}>
+                              <div>Total</div>
+                              <div />
+                              <div />
+                              <div>{net.toFixed(2)} {currency}</div>
+                              <div>{total.toFixed(2)} {currency}</div>
+                            </div>
+                          )
+                        })()}
+                      </div>
+
+                      {/* Comentario */}
+                      <div style={{ marginTop:8 }}>
+                        <span className="muted">Comentario:&nbsp;</span>
+                        <span>{expandedData?.header?.notes || expandedData?.header?.NOTES || '—'}</span>
                       </div>
                     </div>
                   )}
-                  {!loadingExpanded && expandedData?.items?.length === 0 && <div className="muted">Sin ítems</div>}
                   {!loadingExpanded && expandedData?.error && <div className="error">{expandedData.error}</div>}
                 </div>
               )}

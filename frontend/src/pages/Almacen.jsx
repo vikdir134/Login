@@ -41,7 +41,7 @@ function PickProductForCompModal({ open, onClose, onPicked }) {
     setLoading(true); setMsg('')
     ;(async () => {
       try {
-        const r = await api.get('/api/products/without-composition') // <-- SOLO sin composición
+        const r = await api.get('/api/products/without-composition')
         if (!alive) return
         const rows = Array.isArray(r.data) ? r.data : []
         setItems(rows)
@@ -75,15 +75,13 @@ function PickProductForCompModal({ open, onClose, onPicked }) {
         </div>
 
         <div className="form-col" style={{ gap: 10 }}>
-          <form onSubmit={(e)=>e.preventDefault()} style={{ display:'flex', gap:8 }}>
+          <div style={{ display:'grid', gridTemplateColumns:'1fr', gap:8 }}>
             <input
               placeholder="Buscar producto…"
               value={q}
               onChange={e=>setQ(e.target.value)}
-              style={{ flex:1 }}
             />
-            <button className="btn-secondary" onClick={()=>setQ(q.trim())}>Filtrar</button>
-          </form>
+          </div>
 
           {loading ? (
             <div className="muted">Cargando…</div>
@@ -152,7 +150,7 @@ export default function Almacen() {
   const [openCreateMP, setOpenCreateMP] = useState(false)
   const [openCreatePT, setOpenCreatePT] = useState(false)
 
-  // composición (nuevo flujo)
+  // composición
   const [openComp, setOpenComp] = useState(false)
   const [productForComp, setProductForComp] = useState(null)
   const [openPickComp, setOpenPickComp] = useState(false)
@@ -185,12 +183,26 @@ export default function Almacen() {
     }
   }
 
+  // reset por tab
   useEffect(() => { setPage(0); setExpandedPT(null); setPtDetailRows([]) }, [tab])
+
+  // cargar por tab/página
   useEffect(() => { load() /* eslint-disable-line */ }, [tab, page])
+
+  // 🔎 Buscador REACTIVO con debounce (300ms)
+  useEffect(() => {
+    const t = setTimeout(() => {
+      setPage(0)              // volver al inicio
+      setExpandedPT(null)     // cerrar expandibles
+      setPtDetailRows([])     // limpiar
+      load()
+    }, 300)
+    return () => clearTimeout(t)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [q])
 
   const canPrev = page > 0
   const canNext = (page + 1) * pageSize < total
-  const onSearch = (e) => { e.preventDefault(); setPage(0); setExpandedPT(null); setPtDetailRows([]); load() }
 
   const togglePTDetail = async (productId) => {
     if (expandedPT === productId) {
@@ -204,7 +216,6 @@ export default function Almacen() {
     try {
       const det = await fetchFinishedByProduct(productId)
       setPtDetailRows(Array.isArray(det) ? det : [])
-      // Nota: ya no ponemos "Componer" por fila
     } catch (e) {
       console.error(e)
       setPtDetailRows([])
@@ -246,12 +257,6 @@ export default function Almacen() {
 
         <div style={{ flex: 1 }} />
 
-        {/* Buscador NO reactivo */}
-        <form onSubmit={onSearch} style={{ display:'flex', gap:8 }}>
-          <input placeholder="Buscar…" value={q} onChange={e=>setQ(e.target.value)} />
-          <button className="btn-secondary">Filtrar</button>
-        </form>
-
         {/* Acciones contextuales */}
         {tab === 'ALMACEN' && (
           <>
@@ -276,6 +281,15 @@ export default function Almacen() {
         {tab === 'MERMA' && puedeMerma && (
           <button className="btn-secondary" onClick={()=>setOpenMerma(true)}>+ Merma</button>
         )}
+      </div>
+
+      {/* Buscador ESTANDAR + REACTIVO */}
+      <div style={{ display:'grid', gridTemplateColumns:'1fr', gap:8 }}>
+        <input
+          placeholder="Buscar…"
+          value={q}
+          onChange={e=>setQ(e.target.value)}
+        />
       </div>
 
       {msg && <div className="muted" style={{ marginTop:8 }}>{msg}</div>}
@@ -328,7 +342,6 @@ export default function Almacen() {
                                 key={`${pid}-${(p.presentacion ?? 'NULL')}-${idx}`}
                                 style={{ gridTemplateColumns:'2fr 1fr' }}
                               >
-                                {/* backend ahora manda `presentacion` (texto) */}
                                 <div>{p.presentacion ?? '—'} Kg</div>
                                 <div>{fmtKg(p.stockKg)} Kg</div>
                               </div>
@@ -456,7 +469,7 @@ export default function Almacen() {
         }}
       />
 
-      {/* Editor de Composición (ya permite múltiples MP con “+ Agregar MP”) */}
+      {/* Editor de Composición */}
       <CompositionModal
         open={openComp}
         onClose={()=>setOpenComp(false)}

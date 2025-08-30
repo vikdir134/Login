@@ -1,7 +1,8 @@
+// src/components/CreateDeliveryModal.jsx
 import { useEffect, useMemo, useState } from 'react'
 import { getEffectivePrice } from '../api/prices'
 import { createDelivery } from '../api/deliveries'
-import { createInvoice } from '../api/invoices' // <-- necesitas este helper (ver nota al final)
+import { createInvoice } from '../api/invoices'
 
 const fmtKg = n => (Number(n)||0).toFixed(2)
 const fmtMoney = n => (Number(n)||0).toFixed(2)
@@ -13,9 +14,12 @@ export default function CreateDeliveryModal({ open, onClose, order, onDone }) {
   const [sending, setSending] = useState(false)
   const [msg, setMsg] = useState('')
 
-  // ===== Factura opcional (tu tabla: ID_FACTURA, CODIGO, CREATED_AT) =====
+  // ===== Factura opcional =====
   const [makeInvoice, setMakeInvoice] = useState(false)
   const [invoiceCode, setInvoiceCode] = useState('')
+
+  // Hover/Focus para ✕
+  const [closeHover, setCloseHover] = useState(false)
 
   // Mapa de líneas para validar pendiente / sugerir precio
   const lineMap = useMemo(() => {
@@ -50,7 +54,6 @@ export default function CreateDeliveryModal({ open, onClose, order, onDone }) {
       const line = lineMap.get(String(r.descriptionOrderId))
       if (!line) return false
       if (Number(r.peso) > Number(line.pendiente || 0) + 1e-9) return false
-      // precio vacío => usa “vigente”; si escribe, debe ser número
       if (r.unitPrice !== '' && r.unitPrice != null && isNaN(Number(r.unitPrice))) return false
     }
     if (makeInvoice && !invoiceCode.trim()) return false
@@ -66,7 +69,6 @@ export default function CreateDeliveryModal({ open, onClose, order, onDone }) {
     setRow(i, { descriptionOrderId })
     const line = lineMap.get(String(descriptionOrderId))
     if (!line) return
-    // si no hay precio en la fila, sugerir vigente del cliente-producto
     if (rows[i].unitPrice === '' || rows[i].unitPrice == null) {
       const eff = await getEffectivePrice({ customerId: order.customerId, productId: line.productId })
       if (eff) {
@@ -84,13 +86,13 @@ export default function CreateDeliveryModal({ open, onClose, order, onDone }) {
     setSending(true); setMsg('')
 
     try {
-      // 1) Crear factura si aplica -> obtener facturaId
+      // 1) Crear factura si aplica
       let facturaId = null
       if (makeInvoice) {
         const inv = await createInvoice({
           customerId: order.customerId,
           code: invoiceCode.trim()
-        }) // debe devolver { id, ... }
+        })
         facturaId = inv?.id || null
       }
 
@@ -99,7 +101,6 @@ export default function CreateDeliveryModal({ open, onClose, order, onDone }) {
         descriptionOrderId: Number(r.descriptionOrderId),
         peso: Number(r.peso),
         descripcion: r.descripcion || null,
-        // si dejó el precio vacío => backend tomará “vigente” y a la vez NO actualiza lista de precios
         unitPrice: (r.unitPrice==='' || r.unitPrice==null) ? undefined : Number(r.unitPrice),
         currency: r.currency || 'PEN'
       }))
@@ -119,21 +120,34 @@ export default function CreateDeliveryModal({ open, onClose, order, onDone }) {
   return (
     <div className="modal modal--center">
       <div className="modal__overlay" onClick={onClose} />
-      <div className="modal__panel">
-        <div className="modal__head">
-          <h4 className="modal__title">Nueva entrega (múltiples líneas)</h4>
-          <button className="icon-btn" onClick={onClose}>✕</button>
+      <div className="modal__panel" style={{ background:'var(--bg)', color:'var(--text)', border:'1px solid var(--card)' }}>
+        <div className="modal__head" style={{ display:'flex', alignItems:'center', justifyContent:'space-between', gap:10 }}>
+          <h4 className="modal__title" style={{ margin:0 }}>Nueva entrega (múltiples líneas)</h4>
+          <button
+            className="icon-btn icon-btn--close"
+            onClick={onClose}
+            onMouseEnter={()=>setCloseHover(true)}
+            onMouseLeave={()=>setCloseHover(false)}
+            title="Cerrar"
+            style={{
+              width:32, height:32, borderRadius:8, display:'grid', placeItems:'center',
+              border:'1px solid var(--card)', background:'transparent',
+              cursor:'pointer', transition:'all .15s ease',
+              color: closeHover ? '#b91c1c' : 'var(--text)'
+            }}
+          >✕</button>
         </div>
 
         <form onSubmit={submit} className="form-col" style={{ gap:12 }}>
           {/* ====== FACTURA OPCIONAL ====== */}
-          <div className="card" style={{ background:'transparent', border:'1px dashed var(--border)' }}>
-            <label className="form-switch" style={{ display:'flex', alignItems:'center', gap:8 }}>
+          <div className="card" style={{ background:'transparent', border:'1px dashed var(--border)', padding:12 }}>
+            <label className="form-switch pretty-switch" style={{ display:'flex', alignItems:'center', gap:8 }}>
               <input
                 type="checkbox"
                 checked={makeInvoice}
                 onChange={e=>setMakeInvoice(e.target.checked)}
               />
+              <span className="pretty-switch__slider" aria-hidden />
               <span>Crear factura ahora</span>
             </label>
             {makeInvoice && (
@@ -155,8 +169,9 @@ export default function CreateDeliveryModal({ open, onClose, order, onDone }) {
           <div className="muted">Líneas de la entrega</div>
           {rows.map((r, i) => {
             const line = lineMap.get(String(r.descriptionOrderId))
+            const borderWarn = line && Number(r.peso) > Number(line.pendiente) ? '1px solid #b91c1c' : '1px solid var(--card)'
             return (
-              <div key={i} className="form-row" style={{ gridTemplateColumns:'2fr 1fr 1fr 1fr auto' }}>
+              <div key={i} className="form-row" style={{ gridTemplateColumns:'2fr 1fr 1fr 1fr auto', border: borderWarn, borderRadius:12, padding:10 }}>
                 <label className="form-field">
                   <span>Línea (producto · presentación)</span>
                   <select
@@ -184,8 +199,8 @@ export default function CreateDeliveryModal({ open, onClose, order, onDone }) {
                     required
                   />
                   {line && Number(r.peso) > Number(line.pendiente) && (
-                    <div className="muted" style={{ color:'#c00' }}>
-                      Max {fmtKg(line.pendiente)} kg
+                    <div className="muted" style={{ color:'#b91c1c' }}>
+                      Máx {fmtKg(line.pendiente)} kg
                     </div>
                   )}
                 </label>
@@ -213,7 +228,7 @@ export default function CreateDeliveryModal({ open, onClose, order, onDone }) {
                   </select>
                 </label>
 
-                <div className="form-actions">
+                <div className="form-actions" style={{ alignSelf:'end' }}>
                   {rows.length > 1 && (
                     <button type="button" className="btn-secondary" onClick={()=>removeRow(i)}>Quitar</button>
                   )}
