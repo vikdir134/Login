@@ -24,61 +24,66 @@ function buildCustomerWhere({ q }) {
  * Soporta búsqueda (q) y "solo con saldo" (onlyWithDebt) desde SQL (HAVING).
  * Paginación: limit/offset sobre el agregado.
  */
-export async function listCustomersWithDebt({ q, onlyWithDebt = false, limit = 30, offset = 0 }) {
+export async function listCustomersWithDebt({ q, balance = 'all', limit = 30, offset = 0 }) {
   const { where, params } = buildCustomerWhere({ q })
 
-  // Base agregada por cliente
-  // NOTA: restringimos a PEN; si luego manejas multi-moneda, agrégalo por currency.
   const baseSql = `
     SELECT
       c.ID_CUSTOMER                                AS customerId,
       c.RAZON_SOCIAL                               AS customerName,
       c.RUC                                        AS RUC,
-      IFNULL(SUM(dd.SUBTOTAL), 0)                  AS subtotalSumPEN,
-      -- total con IGV:
       IFNULL(SUM(dd.SUBTOTAL), 0) * (1 + ${IGV_RATE}) AS totalPedidosPEN,
-      -- pagos:
       IFNULL((
         SELECT SUM(p.AMOUNT)
         FROM PAYMENTS p
         WHERE p.ID_CUSTOMER = c.ID_CUSTOMER AND p.CURRENCY = 'PEN'
       ), 0)                                        AS totalPagadoPEN
     FROM CUSTOMERS c
-    LEFT JOIN ORDERS o            ON o.ID_CUSTOMER = c.ID_CUSTOMER
-    LEFT JOIN ORDER_DELIVERY od   ON od.ID_ORDER = o.ID_ORDER
-    LEFT JOIN DESCRIPTION_DELIVERY dd ON dd.ID_ORDER_DELIVERY = od.ID_ORDER_DELIVERY AND dd.CURRENCY = 'PEN'
+    LEFT JOIN ORDERS o              ON o.ID_CUSTOMER = c.ID_CUSTOMER
+    LEFT JOIN ORDER_DELIVERY od     ON od.ID_ORDER = o.ID_ORDER
+    LEFT JOIN DESCRIPTION_DELIVERY dd ON dd.ID_ORDER_DELIVERY = od.ID_ORDER_DELIVERY AND dd.CURRENCY='PEN'
     ${where}
     GROUP BY c.ID_CUSTOMER, c.RAZON_SOCIAL, c.RUC
   `
 
-  // Conteo total (aplicando HAVING si estuviera activo "solo con saldo")
+  // WHERE/HAVING según balance
+  const having =
+    balance === 'with'
+      ? 'WHERE (t.totalPedidosPEN - t.totalPagadoPEN) > 0.000001'
+      : balance === 'without'
+      ? 'WHERE ABS(t.totalPedidosPEN - t.totalPagadoPEN) <= 0.000001'
+      : '' // all
+
+  // total para paginación
   const countSql = `
     SELECT COUNT(*) AS total
     FROM (
-      ${baseSql}
+      SELECT
+        customerId,
+        totalPedidosPEN,
+        totalPagadoPEN
+      FROM (${baseSql}) t
     ) t
-    ${onlyWithDebt ? 'WHERE (t.totalPedidosPEN - t.totalPagadoPEN) > 0.000001' : ''}
+    ${having}
   `
   const [[{ total }]] = await pool.query(countSql, params)
 
-  // Datos paginados
+  // data paginada
   const dataSql = `
     SELECT
-      customerId, customerName, RUC,
-      totalPedidosPEN,
-      totalPagadoPEN,
-      (totalPedidosPEN - totalPagadoPEN) AS saldoPEN
-    FROM (
-      ${baseSql}
-    ) x
-    ${onlyWithDebt ? 'WHERE (x.totalPedidosPEN - x.totalPagadoPEN) > 0.000001' : ''}
-    ORDER BY saldoPEN DESC, customerName ASC
+      t.customerId, t.customerName, t.RUC,
+      t.totalPedidosPEN,
+      t.totalPagadoPEN,
+      (t.totalPedidosPEN - t.totalPagadoPEN) AS saldoPEN
+    FROM (${baseSql}) t
+    ${having}
+    ORDER BY saldoPEN DESC, t.customerName ASC
     LIMIT ? OFFSET ?
   `
   const [rows] = await pool.query(dataSql, [...params, Number(limit), Number(offset)])
-
   return { items: rows, total: Number(total || 0) }
 }
+
 
 /**
  * Detalle de cuentas por cobrar de un cliente:

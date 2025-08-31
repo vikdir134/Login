@@ -5,33 +5,52 @@ import { listReceivableCustomers, fetchReceivablesSummary } from '../api/receiva
 
 const fmt = n => (Number(n)||0).toFixed(2)
 
+// pequeño hook de debounce local (sin libs)
+function useDebounced(value, delay = 400) {
+  const [debounced, setDebounced] = useState(value)
+  useEffect(() => {
+    const t = setTimeout(() => setDebounced(value), delay)
+    return () => clearTimeout(t)
+  }, [value, delay])
+  return debounced
+}
+
 export default function CuentasPorCobrar() {
+  // búsqueda y filtro
   const [q, setQ] = useState('')
-  const [onlyDebt, setOnlyDebt] = useState(true)
+  const qDebounced = useDebounced(q, 400)         // ← búsqueda reactiva
+  const [balance, setBalance] = useState('all')   // 'all' | 'with' | 'without'
+
+  // paginado
   const [page, setPage] = useState(0)
   const pageSize = 30
 
+  // data
   const [rows, setRows] = useState([])
   const [total, setTotal] = useState(0)
   const [summary, setSummary] = useState(null)
+
+  // ui
   const [loading, setLoading] = useState(true)
   const [msg, setMsg] = useState('')
 
-  const load = async () => {
+  const load = async ({ resetPage = false } = {}) => {
     setLoading(true); setMsg('')
     try {
+      const p = resetPage ? 0 : page
       const [list, sum] = await Promise.all([
         listReceivableCustomers({
-          q: q || undefined,
-          onlyWithDebt: !!onlyDebt,
+          q: qDebounced || undefined,
+          balance,                          // ← backend filtra aquí
           limit: pageSize,
-          offset: page * pageSize
+          offset: p * pageSize
         }),
         fetchReceivablesSummary()
       ])
       setRows(Array.isArray(list?.items) ? list.items : [])
       setTotal(Number(list?.total || 0))
       setSummary(sum || null)
+      if (resetPage) setPage(0)
     } catch (e) {
       console.error(e)
       setMsg('Error cargando cuentas por cobrar')
@@ -40,27 +59,20 @@ export default function CuentasPorCobrar() {
     }
   }
 
-  // Nota: al cambiar de página recarga; para aplicar filtros usa el form submit (onSearch)
-  useEffect(()=>{ load() /* eslint-disable-line */ }, [page])
+  // 1) carga inicial y cuando cambia la página
+  useEffect(() => { load() /* eslint-disable-line */ }, [page])
 
-  const onSearch = (e) => {
-    e.preventDefault()
-    setPage(0)
-    load()
-  }
+  // 2) búsqueda reactiva y filtro por balance → resetea a página 0
+  useEffect(() => { load({ resetPage: true }) /* eslint-disable-line */ }, [qDebounced, balance])
 
   const canPrev = page > 0
   const canNext = (page + 1) * pageSize < total
   const totalPages = useMemo(() => Math.max(1, Math.ceil((total || 0) / pageSize)), [total])
 
-  // Helpers por si el backend aún mandara subtotal en vez de total:
-  // Aquí asumimos que backend YA manda total con IGV en:
-  //   - summary.totalPedidosPEN, summary.totalPagadoPEN, summary.saldoPEN
-  //   - r.totalPedidosPEN, r.totalPagadoPEN, r.saldoPEN
-  // Si no, corrige backend (nota al final).
-  const kpiTotal   = Number(summary?.totalPedidosPEN || 0)
-  const kpiPagado  = Number(summary?.totalPagadoPEN || 0)
-  const kpiSaldo   = Number(summary?.saldoPEN || Math.max(0, kpiTotal - kpiPagado))
+  // KPIs del resumen global (con IGV)
+  const kpiTotal  = Number(summary?.totalPedidosPEN || 0)
+  const kpiPagado = Number(summary?.totalPagadoPEN || 0)
+  const kpiSaldo  = Number(summary?.saldoPEN ?? Math.max(0, kpiTotal - kpiPagado))
 
   return (
     <section className="card">
@@ -68,7 +80,7 @@ export default function CuentasPorCobrar() {
         <h3 style={{ margin:0 }}>Cuentas por cobrar</h3>
       </div>
 
-      {/* KPIs grandes */}
+      {/* KPIs */}
       <div style={{
         display:'grid',
         gridTemplateColumns:'repeat(3, minmax(0, 1fr))',
@@ -89,26 +101,23 @@ export default function CuentasPorCobrar() {
         </div>
       </div>
 
-      {/* Filtros */}
-      <form
-        onSubmit={onSearch}
-        style={{ display:'grid', gridTemplateColumns:'2fr 1fr auto', gap:8, marginTop:12, alignItems:'center' }}
-      >
+      {/* Filtros (búsqueda reactiva + selector balance) */}
+      <div style={{ display:'grid', gridTemplateColumns:'2fr 1fr', gap:8, marginTop:12, alignItems:'center' }}>
         <input
-          placeholder="Buscar cliente (RUC/razón)"
+          placeholder="Buscar cliente (RUC/razón)…"
           value={q}
           onChange={e=>setQ(e.target.value)}
         />
-        <label style={{ display:'flex', gap:8, alignItems:'center' }}>
-          <input
-            type="checkbox"
-            checked={onlyDebt}
-            onChange={e=> setOnlyDebt(e.target.checked)}
-          />
-          Solo con saldo
-        </label>
-        <button className="btn-secondary">Filtrar</button>
-      </form>
+        <select
+          value={balance}
+          onChange={e=>setBalance(e.target.value)}
+          title="Filtrar por saldo"
+        >
+          <option value="all">Todos</option>
+          <option value="with">Con saldo</option>
+          <option value="without">Sin saldo</option>
+        </select>
+      </div>
 
       {msg && <div className="muted" style={{ marginTop:8 }}>{msg}</div>}
 
@@ -123,7 +132,7 @@ export default function CuentasPorCobrar() {
         </div>
 
         {!loading && rows.map((r, i) => {
-          const totalCli  = Number(r.totalPedidosPEN || 0)   // total con IGV por cliente
+          const totalCli  = Number(r.totalPedidosPEN || 0)
           const pagadoCli = Number(r.totalPagadoPEN || 0)
           const saldoCli  = Number(r.saldoPEN ?? Math.max(0, totalCli - pagadoCli))
           return (
