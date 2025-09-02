@@ -10,13 +10,12 @@ export async function listCustomersWithDebtCtrl(req, res) {
   try {
     const schema = z.object({
       q: z.string().optional(),
-      // balance: "all" | "with" | "without"
-      balance: z.enum(['all','with','without']).optional(),
-      limit: z.coerce.number().int().positive().max(200).optional(),
-      offset: z.coerce.number().int().nonnegative().optional()
+      balance: z.enum(['all','with','without']).optional().default('all'),
+      limit: z.coerce.number().int().positive().max(200).optional().default(30),
+      offset: z.coerce.number().int().nonnegative().optional().default(0),
     })
+    const { q, balance, limit, offset } = schema.parse(req.query)
 
-    const { q, balance = 'all', limit = 30, offset = 0 } = schema.parse(req.query)
     const data = await listCustomersWithDebt({ q, balance, limit, offset })
     res.json(data)
   } catch (e) {
@@ -25,15 +24,24 @@ export async function listCustomersWithDebtCtrl(req, res) {
   }
 }
 
-
 export async function getCustomerReceivableCtrl(req, res) {
   try {
+    // balance: all | with | without (default: all)
+    // from/to: YYYY-MM-DD (opcional)
     const schema = z.object({
-      onlyWithBalance: z.coerce.boolean().optional()
+      balance: z.enum(['all','with','without']).optional().default('all'),
+      from: z.string().optional(),
+      to: z.string().optional(),
     })
-    const { onlyWithBalance=false } = schema.parse(req.query)
+    const { balance, from, to } = schema.parse(req.query)
     const id = Number(req.params.id)
-    const data = await getCustomerReceivable({ customerId: id, onlyWithBalance })
+
+    const data = await getCustomerReceivable({
+      customerId: id,
+      balance,
+      from,
+      to,
+    })
     res.json(data)
   } catch (e) {
     console.error(e)
