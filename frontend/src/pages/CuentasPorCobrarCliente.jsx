@@ -4,18 +4,14 @@ import { useParams } from 'react-router-dom'
 import { fetchCustomerReceivable } from '../api/receivables'
 import { createPayment, listPaymentsByOrder } from '../api/payments'
 
+// Config / utilidades
+import { COMPANY } from '../config/company'
+import { printHTML } from '../utils/print'
+import { buildCxCClienteReportHTML } from '../reports/cxcClienteReport'
+
 const fmt = n => (Number(n)||0).toFixed(2)
 const fmtDate = (d) => new Date(d).toLocaleDateString()
 const fmtDateTime = (d) => new Date(d).toLocaleString()
-
-// ====== Encabezado configurable de la empresa ======
-const COMPANY = {
-  name: 'ANCA NYLON SAC',
-  ruc: '206010444',
-  address: '',
-  phone: '',
-  email: ''
-}
 
 // ====== Modal: Pagar ======
 function PayModal({ open, onClose, orderId, onDone }) {
@@ -191,200 +187,91 @@ export default function CuentasPorCobrarCliente() {
 
   const items = useMemo(()=> Array.isArray(data?.items) ? data.items : [], [data])
 
+  // KPIs al estilo ClienteDetalle (derivados de ítems filtrados)
+  const { kpiTotal, kpiPagado, kpiSaldo } = useMemo(() => {
+    const t = items.reduce((a, it) => {
+      a.total += Number(it.total || 0)
+      a.pagado += Number(it.pagado || 0)
+      a.saldo += Number(it.saldo || 0)
+      return a
+    }, { total:0, pagado:0, saldo:0 })
+    return { kpiTotal: t.total, kpiPagado: t.pagado, kpiSaldo: t.saldo }
+  }, [items])
+
   if (loading && !data) return <section className="card">Cargando…</section>
   if (!data) return <section className="card">Cliente no encontrado</section>
 
-  // ====== Imprimir informe (abrir ventana primero para evitar bloqueos) ======
-  // Reemplaza toda la función onPrint por esta versión con fallback
-const onPrint = () => {
-  // Intento 1: abrir ventana sincrónicamente (si se permite, mejor UX)
-  const w = window.open('', '_blank', 'noopener,noreferrer');
-  const openWasBlocked = !w;
-
-  // Función que imprime en una ventana YA abierta
-  const writeAndPrintInWindow = (targetWin, html) => {
-    targetWin.document.open();
-    targetWin.document.write(html);
-    targetWin.document.close();
-    targetWin.focus();
-    targetWin.print();
-  };
-
-  // Si tenemos ventana, pintamos un “Generando…”
-  if (w) {
-    w.document.write(`<!doctype html><html><head><meta charset="utf-8"/><title>Generando…</title></head><body style="font-family:system-ui,Segoe UI,Roboto,Arial"><p>Generando reporte…</p></body></html>`);
-    w.document.close();
+  // Limpiar filtros
+  const clearFilters = () => {
+    setBalance('all')
+    setFrom('')
+    setTo('')
   }
 
-  // Carga asíncrona de pagos + composición del HTML final
-  (async () => {
+  // Imprimir informe (usa KPIs filtrados)
+  const onPrint = async () => {
     try {
-      const mapPagos = new Map();
+      const paymentsByOrder = new Map()
       await Promise.all(items.map(async (it) => {
-        const pagos = await listPaymentsByOrder(it.orderId).catch(()=>[]);
-        mapPagos.set(it.orderId, Array.isArray(pagos) ? pagos : []);
-      }));
+        const pagos = await listPaymentsByOrder(it.orderId).catch(()=>[])
+        paymentsByOrder.set(it.orderId, Array.isArray(pagos) ? pagos : [])
+      }))
 
-      const todayTxt = fmtDateTime(new Date());
-      const headHtml = `
-        <div style="display:flex; justify-content:space-between; align-items:flex-start; margin-bottom:12px">
-          <div>
-            <div style="font-size:20px; font-weight:700;">${COMPANY.name}</div>
-            <div style="color:#555;">RUC: ${COMPANY.ruc}</div>
-            ${COMPANY.address ? `<div style="color:#555;">${COMPANY.address}</div>` : ''}
-            ${COMPANY.phone ? `<div style="color:#555;">${COMPANY.phone}</div>` : ''}
-            ${COMPANY.email ? `<div style="color:#555;">${COMPANY.email}</div>` : ''}
-          </div>
-          <div style="text-align:right">
-            <div style="font-size:18px; font-weight:700;">Informe de Cuentas por Cobrar</div>
-            <div style="color:#555;">Generado: ${todayTxt}</div>
-          </div>
-        </div>
-        <hr style="border:none; border-top:1px solid #ddd; margin:10px 0" />
-        <div style="display:flex; justify-content:space-between; gap:16px; margin:12px 0">
-          <div>
-            <div><b>Cliente:</b> ${data.customerName}</div>
-            <div><b>RUC:</b> ${data.RUC}</div>
-          </div>
-          <div style="text-align:right">
-            <div><b>Total:</b> S/ ${fmt(data.totalPedidosPEN)}</div>
-            <div><b>Pagado:</b> S/ ${fmt(data.totalPagadoPEN)}</div>
-            <div><b>Saldo:</b> S/ ${fmt(data.saldoPEN)}</div>
-          </div>
-        </div>
-      `;
+      const html = buildCxCClienteReportHTML({
+        company: COMPANY,
+        client: {
+          customerName: data.customerName,
+          RUC: data.RUC,
+          totalPedidosPEN: kpiTotal,
+          totalPagadoPEN: kpiPagado,
+          saldoPEN: kpiSaldo
+        },
+        items,
+        paymentsByOrder,
+        balance
+      })
 
-      const rowsHtml = items.map(it => {
-        const pagos = mapPagos.get(it.orderId) || [];
-        const pagosHtml = pagos.length ? `
-          <table style="width:100%; border-collapse:collapse; font-size:12px; margin-top:6px">
-            <thead>
-              <tr>
-                <th style="text-align:left; padding:6px; border:1px solid #e5e5e5;">Fecha</th>
-                <th style="text-align:left; padding:6px; border:1px solid #e5e5e5;">Método</th>
-                <th style="text-align:left; padding:6px; border:1px solid #e5e5e5;">Operación</th>
-                <th style="text-align:left; padding:6px; border:1px solid #e5e5e5;">Observación</th>
-                <th style="text-align:right; padding:6px; border:1px solid #e5e5e5;">Monto</th>
-              </tr>
-            </thead>
-            <tbody>
-              ${pagos.map(p => `
-                <tr>
-                  <td style="padding:6px; border:1px solid #eee;">${fmtDate(p.paymentDate || p.PAYMENT_DATE)}</td>
-                  <td style="padding:6px; border:1px solid #eee;">${p.method || p.METHOD}</td>
-                  <td style="padding:6px; border:1px solid #eee;">${p.reference || p.REFERENCE || ''}</td>
-                  <td style="padding:6px; border:1px solid #eee;">${p.notes || p.OBSERVACION || ''}</td>
-                  <td style="padding:6px; border:1px solid #eee; text-align:right;">${fmt(p.amount || p.AMOUNT)} ${p.currency || p.CURRENCY || 'PEN'}</td>
-                </tr>`).join('')}
-            </tbody>
-          </table>` : `<div style="color:#777; font-size:12px; margin-top:6px">Sin pagos</div>`;
-
-        return `
-          <div style="border:1px solid #e5e5e5; border-radius:8px; padding:10px; margin:10px 0">
-            <div style="display:flex; justify-content:space-between; gap:12px; align-items:flex-start;">
-              <div>
-                <div style="font-weight:700;">Pedido #${it.orderId}</div>
-                <div style="color:#555;">${fmtDateTime(it.fecha)}</div>
-                <div style="color:#555;">Facturas: ${it.invoices || '—'}</div>
-                <div style="color:#555;">Estado: ${it.estado}</div>
-              </div>
-              <div style="text-align:right">
-                <div><b>Total:</b> S/ ${fmt(it.total)}</div>
-                <div><b>Pagado:</b> S/ ${fmt(it.pagado)}</div>
-                <div><b>Saldo:</b> S/ ${fmt(it.saldo)}</div>
-              </div>
-            </div>
-            ${pagosHtml}
-          </div>`;
-      }).join('');
-
-      const html = `<!doctype html>
-<html>
-<head>
-  <meta charset="utf-8" />
-  <title>Informe CxC - ${data.customerName}</title>
-  <style>
-    @media print { @page { margin: 16mm; } body { -webkit-print-color-adjust: exact; print-color-adjust: exact; } }
-    body { font-family: system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif; font-size: 14px; color: #111; margin: 24px; }
-  </style>
-</head>
-<body>
-  ${headHtml}
-  <div style="margin-top:12px; font-size:16px; font-weight:700;">Pedidos (${balance === 'with' ? 'solo con saldo' : balance === 'without' ? 'pagados' : 'todos'})</div>
-  ${rowsHtml || '<div style="margin-top:8px; color:#777">No hay pedidos en este filtro.</div>'}
-</body>
-</html>`;
-
-      if (!openWasBlocked) {
-        // Ventana ya abierta → escribir e imprimir allí
-        writeAndPrintInWindow(w, html);
-      } else {
-        // Fallback: iframe oculto (no bloquea)
-        const iframe = document.createElement('iframe');
-        iframe.style.position = 'fixed';
-        iframe.style.right = '0';
-        iframe.style.bottom = '0';
-        iframe.style.width = '0';
-        iframe.style.height = '0';
-        iframe.style.border = '0';
-        document.body.appendChild(iframe);
-        const doc = iframe.contentWindow || iframe.contentDocument;
-        const win = doc.window || doc;
-        doc.document.open();
-        doc.document.write(html);
-        doc.document.close();
-        setTimeout(() => {
-          win.focus();
-          win.print();
-          // Limpieza
-          setTimeout(() => document.body.removeChild(iframe), 1000);
-        }, 100);
-      }
+      printHTML(html)
     } catch (e) {
-      console.error(e);
-      if (!openWasBlocked && w) {
-        writeAndPrintInWindow(w, '<p style="font-family:system-ui">No se pudo generar el informe.</p>');
-      } else {
-        alert('No se pudo generar el informe.');
-      }
+      console.error(e)
+      alert('No se pudo generar el informe.')
     }
-  })();
-};
+  }
 
   return (
     <section className="card">
-      {/* HEADER */}
+      {/* Header */}
       <div className="topbar" style={{ marginBottom:0 }}>
         <h3 style={{ margin:0 }}>{data.customerName} · {data.RUC}</h3>
-        <div style={{ flex:1 }} />
-        {/* KPIs grandes */}
-        <div style={{
-          display:'grid',
-          gridTemplateColumns:'repeat(3, minmax(0, 1fr))',
-          gap:8,
-          minWidth: 420
-        }}>
-          <div className="card" style={{ padding:12 }}>
-            <div className="muted">Total</div>
-            <div style={{ fontSize:20, fontWeight:700 }}>S/ {fmt(data.totalPedidosPEN)}</div>
-          </div>
-          <div className="card" style={{ padding:12 }}>
-            <div className="muted">Pagado</div>
-            <div style={{ fontSize:20, fontWeight:700, color:'#1a7f37' }}>S/ {fmt(data.totalPagadoPEN)}</div>
-          </div>
-          <div className="card" style={{ padding:12 }}>
-            <div className="muted">Saldo</div>
-            <div style={{ fontSize:20, fontWeight:700, color:'#b42318' }}>S/ {fmt(data.saldoPEN)}</div>
-          </div>
+      </div>
+
+      {/* KPIs estilo ClienteDetalle (3 tarjetas, fuente 24, bold) */}
+      <div style={{
+        display:'grid',
+        gridTemplateColumns:'repeat(3, minmax(0, 1fr))',
+        gap:12,
+        marginTop:14
+      }}>
+        <div className="card" style={{ padding:16 }}>
+          <div className="muted">Total</div>
+          <div style={{ fontSize:24, fontWeight:700 }}>S/ {fmt(kpiTotal)}</div>
+        </div>
+        <div className="card" style={{ padding:16 }}>
+          <div className="muted">Pagado</div>
+          <div style={{ fontSize:24, fontWeight:700, color:'#1a7f37' }}>S/ {fmt(kpiPagado)}</div>
+        </div>
+        <div className="card" style={{ padding:16 }}>
+          <div className="muted">Saldo</div>
+          <div style={{ fontSize:24, fontWeight:700, color:'#b42318' }}>S/ {fmt(kpiSaldo)}</div>
         </div>
       </div>
 
-      {/* FILTROS */}
+      {/* Filtros */}
       <form
         onSubmit={(e)=>{ e.preventDefault(); load() }}
         style={{
           display:'grid',
-          gridTemplateColumns:'1fr 1fr 1fr auto',
+          gridTemplateColumns:'1fr 1fr 1fr auto auto',
           gap:8,
           marginTop:12,
           alignItems:'end'
@@ -408,13 +295,16 @@ const onPrint = () => {
         </label>
         <div style={{ display:'flex', gap:8 }}>
           <button className="btn-secondary" type="submit">Aplicar</button>
+          <button className="btn-secondary" type="button" onClick={clearFilters}>Limpiar</button>
+        </div>
+        <div style={{ display:'flex', justifyContent:'flex-end' }}>
           <button className="btn" type="button" onClick={onPrint}>Imprimir informe</button>
         </div>
       </form>
 
       {msg && <div className="muted" style={{ marginTop:8 }}>{msg}</div>}
 
-      {/* TABLA */}
+      {/* Tabla */}
       <div className="table" style={{ marginTop:14 }}>
         <div className="table__head" style={{ gridTemplateColumns:'1fr 1.6fr 1fr 1fr 1fr auto' }}>
           <div>Pedido</div>
@@ -435,7 +325,7 @@ const onPrint = () => {
               <div>{fmtDateTime(r.fecha)}</div>
               <div>{fmt(r.total)}</div>
               <div>{fmt(r.pagado)}</div>
-              <div style={{ fontWeight:700, color: completo ? 'var(--success)' : 'inherit' }}>
+              <div style={{ fontWeight:700 }}>
                 {fmt(r.saldo)} {completo && <span className="badge badge--success" style={{ marginLeft:8 }}>Completado</span>}
               </div>
               <div style={{ display:'flex', gap:6, justifyContent:'flex-end' }}>
