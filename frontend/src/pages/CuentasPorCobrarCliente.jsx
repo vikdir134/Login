@@ -2,19 +2,20 @@
 import { useEffect, useMemo, useState } from 'react'
 import { useParams } from 'react-router-dom'
 import { fetchCustomerReceivable } from '../api/receivables'
-import { createPayment, listPaymentsByOrder } from '../api/payments'
+import { createPayment, listPaymentsByDelivery } from '../api/payments'
 
-// Config / utilidades
 import { COMPANY } from '../config/company'
 import { printHTML } from '../utils/print'
-import { buildCxCClienteReportHTML } from '../reports/cxcClienteReport'
+import { buildCxCClienteReportHTML, buildInvoicePaymentsHTML } from '../reports/cxcClienteReport'
 
 const fmt = n => (Number(n)||0).toFixed(2)
-const fmtDate = (d) => new Date(d).toLocaleDateString()
 const fmtDateTime = (d) => new Date(d).toLocaleString()
 
-// ====== Modal: Pagar ======
-function PayModal({ open, onClose, orderId, onDone }) {
+// Base del API para componer URLs absolutas a /uploads
+const API_BASE = import.meta.env.VITE_API_BASE_URL || ''
+
+/* ===================== MODAL: PAGAR (por ENTREGA) ===================== */
+function PayModal({ open, onClose, deliveryId, onDone }) {
   const [paymentDate, setPaymentDate] = useState(() => new Date().toISOString().slice(0,10))
   const [amount, setAmount] = useState('')
   const [method, setMethod] = useState('EFECTIVO')
@@ -36,8 +37,8 @@ function PayModal({ open, onClose, orderId, onDone }) {
     e.preventDefault()
     setSending(true); setMsg('')
     try {
-      await createPayment(orderId, {
-        orderId: Number(orderId),
+      await createPayment({
+        orderDeliveryId: Number(deliveryId),
         paymentDate,
         amount: Number(amount),
         method,
@@ -58,7 +59,7 @@ function PayModal({ open, onClose, orderId, onDone }) {
     <div className="modal modal--center">
       <div className="modal__card" style={{ minWidth: 520 }}>
         <div className="modal__header">
-          <h4 style={{ margin:0 }}>Registrar pago · Pedido #{orderId}</h4>
+          <h4 style={{ margin:0 }}>Registrar pago · Entrega #{deliveryId}</h4>
           <button className="btn-secondary" onClick={onClose}>Cerrar</button>
         </div>
         <form onSubmit={submit} className="form-col" style={{ gap:10 }}>
@@ -100,28 +101,30 @@ function PayModal({ open, onClose, orderId, onDone }) {
   )
 }
 
-// ====== Modal: Historial de pagos del pedido ======
-function PaymentsHistoryModal({ open, onClose, orderId }) {
+/* ========== MODAL: HISTORIAL DE PAGOS (por ENTREGA) ========== */
+function PaymentsHistoryModal({ open, onClose, deliveryId }) {
   const [rows, setRows] = useState([])
   const [loading, setLoading] = useState(true)
 
   useEffect(() => {
     let alive = true
-    if (!open || !orderId) return
+    if (!open || !deliveryId) return
     setLoading(true)
-    listPaymentsByOrder(orderId)
+    listPaymentsByDelivery(deliveryId)
       .then(data => { if (alive) setRows(Array.isArray(data)? data:[]) })
       .finally(()=> { if (alive) setLoading(false) })
     return () => { alive = false }
-  }, [open, orderId])
+  }, [open, deliveryId])
 
   if (!open) return null
+
+  const fmtDate = (d) => new Date(d).toLocaleDateString()
 
   return (
     <div className="modal modal--center">
       <div className="modal__card" style={{ minWidth: 640 }}>
         <div className="modal__header">
-          <h4 style={{ margin:0 }}>Historial de pagos · Pedido #{orderId}</h4>
+          <h4 style={{ margin:0 }}>Historial de pagos · Entrega #{deliveryId}</h4>
           <button className="btn-secondary" onClick={onClose}>Cerrar</button>
         </div>
 
@@ -152,11 +155,11 @@ function PaymentsHistoryModal({ open, onClose, orderId }) {
   )
 }
 
+/* ===================== PAGE ===================== */
 export default function CuentasPorCobrarCliente() {
   const { id } = useParams()
 
-  // filtros
-  const [balance, setBalance] = useState('all') // 'all' | 'with' | 'without'
+  const [balance, setBalance] = useState('all')
   const [from, setFrom] = useState('')
   const [to, setTo] = useState('')
 
@@ -164,11 +167,10 @@ export default function CuentasPorCobrarCliente() {
   const [loading, setLoading] = useState(true)
   const [msg, setMsg] = useState('')
 
-  // modales
   const [payOpen, setPayOpen] = useState(false)
-  const [payOrderId, setPayOrderId] = useState(null)
+  const [payDeliveryId, setPayDeliveryId] = useState(null)
   const [histOpen, setHistOpen] = useState(false)
-  const [histOrderId, setHistOrderId] = useState(null)
+  const [histDeliveryId, setHistDeliveryId] = useState(null)
 
   const load = async () => {
     setLoading(true); setMsg('')
@@ -187,7 +189,6 @@ export default function CuentasPorCobrarCliente() {
 
   const items = useMemo(()=> Array.isArray(data?.items) ? data.items : [], [data])
 
-  // KPIs al estilo ClienteDetalle (derivados de ítems filtrados)
   const { kpiTotal, kpiPagado, kpiSaldo } = useMemo(() => {
     const t = items.reduce((a, it) => {
       a.total += Number(it.total || 0)
@@ -201,57 +202,36 @@ export default function CuentasPorCobrarCliente() {
   if (loading && !data) return <section className="card">Cargando…</section>
   if (!data) return <section className="card">Cliente no encontrado</section>
 
-  // Limpiar filtros
-  const clearFilters = () => {
-    setBalance('all')
-    setFrom('')
-    setTo('')
+  const clearFilters = () => { setBalance('all'); setFrom(''); setTo('') }
+
+  // Imprime RESUMEN POR DOCUMENTOS
+  const onPrint = () => {
+    const html = buildCxCClienteReportHTML({
+      company: COMPANY,
+      client: { customerName: data.customerName, RUC: data.RUC },
+      items,
+      balance
+    })
+    printHTML(html)
   }
 
-  // Imprimir informe (usa KPIs filtrados)
-  const onPrint = async () => {
-    try {
-      const paymentsByOrder = new Map()
-      await Promise.all(items.map(async (it) => {
-        const pagos = await listPaymentsByOrder(it.orderId).catch(()=>[])
-        paymentsByOrder.set(it.orderId, Array.isArray(pagos) ? pagos : [])
-      }))
-
-      const html = buildCxCClienteReportHTML({
-        company: COMPANY,
-        client: {
-          customerName: data.customerName,
-          RUC: data.RUC,
-          totalPedidosPEN: kpiTotal,
-          totalPagadoPEN: kpiPagado,
-          saldoPEN: kpiSaldo
-        },
-        items,
-        paymentsByOrder,
-        balance
-      })
-
-      printHTML(html)
-    } catch (e) {
-      console.error(e)
-      alert('No se pudo generar el informe.')
-    }
+  // Helper para armar URL absoluta hacia el backend
+  const docUrl = (p) => {
+    if (!p) return null
+    const s = String(p)
+    if (/^https?:\/\//i.test(s)) return s
+    if (s.startsWith('/')) return `${API_BASE}${s}`
+    return `${API_BASE}/uploads/${s}`
   }
 
   return (
     <section className="card">
-      {/* Header */}
       <div className="topbar" style={{ marginBottom:0 }}>
         <h3 style={{ margin:0 }}>{data.customerName} · {data.RUC}</h3>
       </div>
 
-      {/* KPIs estilo ClienteDetalle (3 tarjetas, fuente 24, bold) */}
-      <div style={{
-        display:'grid',
-        gridTemplateColumns:'repeat(3, minmax(0, 1fr))',
-        gap:12,
-        marginTop:14
-      }}>
+      {/* KPIs */}
+      <div style={{ display:'grid', gridTemplateColumns:'repeat(3, 1fr)', gap:12, marginTop:14 }}>
         <div className="card" style={{ padding:16 }}>
           <div className="muted">Total</div>
           <div style={{ fontSize:24, fontWeight:700 }}>S/ {fmt(kpiTotal)}</div>
@@ -269,13 +249,7 @@ export default function CuentasPorCobrarCliente() {
       {/* Filtros */}
       <form
         onSubmit={(e)=>{ e.preventDefault(); load() }}
-        style={{
-          display:'grid',
-          gridTemplateColumns:'1fr 1fr 1fr auto auto',
-          gap:8,
-          marginTop:12,
-          alignItems:'end'
-        }}
+        style={{ display:'grid', gridTemplateColumns:'1fr 1fr 1fr auto auto', gap:8, marginTop:12, alignItems:'end' }}
       >
         <label className="form-field">
           <span>Estado del saldo</span>
@@ -304,11 +278,11 @@ export default function CuentasPorCobrarCliente() {
 
       {msg && <div className="muted" style={{ marginTop:8 }}>{msg}</div>}
 
-      {/* Tabla */}
+      {/* Tabla: UNA FILA POR ENTREGA */}
       <div className="table" style={{ marginTop:14 }}>
-        <div className="table__head" style={{ gridTemplateColumns:'1fr 1.6fr 1fr 1fr 1fr auto' }}>
-          <div>Pedido</div>
-          <div>Facturas</div>
+        <div className="table__head" style={{ gridTemplateColumns:'1.2fr 2fr 1fr 1fr 1fr auto' }}>
+          <div>Entrega</div>
+          <div>Documentos</div>
           <div>Fecha</div>
           <div>Total (S/)</div>
           <div>Pagado</div>
@@ -317,24 +291,81 @@ export default function CuentasPorCobrarCliente() {
         </div>
 
         {items.map(r => {
+          const deliveryId = r.deliveryId
+          const orderId = r.orderId
+          const facturaUrl = docUrl(r.invoicePath)
+          const guiaUrl = docUrl(r.guiaPath)
           const completo = Number(r.saldo) <= 0.0001
+
           return (
-            <div className="table__row" key={r.orderId} style={{ gridTemplateColumns:'1fr 1.6fr 1fr 1fr 1fr auto' }}>
-              <div>#{r.orderId}</div>
-              <div>{r.invoices || <span className="muted">—</span>}</div>
+            <div className="table__row" key={`${deliveryId}-${orderId}`} style={{ gridTemplateColumns:'1.2fr 2fr 1fr 1fr 1fr auto' }}>
+              <div>#{deliveryId ?? '—'}</div>
+
+              <div style={{ display:'flex', gap:6, flexWrap:'wrap' }}>
+                {r.invoiceCode
+                  ? (facturaUrl
+                      ? <a className="btn-secondary" href={facturaUrl} target="_blank" rel="noopener noreferrer">Factura {r.invoiceCode}</a>
+                      : <span className="badge">Factura {r.invoiceCode}</span>)
+                  : <span className="muted">Sin factura</span>
+                }
+
+                {r.guiaCode
+                  ? (guiaUrl
+                      ? <a className="btn-secondary" href={guiaUrl} target="_blank" rel="noopener noreferrer">Guía {r.guiaCode}</a>
+                      : <span className="badge">Guía {r.guiaCode}</span>)
+                  : <span className="muted">Sin guía</span>
+                }
+              </div>
+
               <div>{fmtDateTime(r.fecha)}</div>
               <div>{fmt(r.total)}</div>
               <div>{fmt(r.pagado)}</div>
               <div style={{ fontWeight:700 }}>
                 {fmt(r.saldo)} {completo && <span className="badge badge--success" style={{ marginLeft:8 }}>Completado</span>}
               </div>
+
               <div style={{ display:'flex', gap:6, justifyContent:'flex-end' }}>
-                <button className="btn-secondary" onClick={()=>{ setHistOrderId(r.orderId); setHistOpen(true) }}>
+                <button
+                  className="btn-secondary"
+                  onClick={()=>{ setHistDeliveryId(deliveryId); setHistOpen(true) }}
+                  title="Ver historial de pagos de esta entrega"
+                >
                   Historial
                 </button>
                 {!completo && (
-                  <button className="btn" onClick={()=>{ setPayOrderId(r.orderId); setPayOpen(true) }}>
+                  <button className="btn" onClick={()=>{ setPayDeliveryId(deliveryId); setPayOpen(true) }}>
                     Pagar
+                  </button>
+                )}
+                {r.invoiceCode && (
+                  <button
+                    className="btn-secondary"
+                    title="Imprimir pagos de esta factura"
+                    onClick={async ()=> {
+                      try {
+                        // Todas las entregas de la misma factura en el dataset actual
+                        const rowsSameInvoice = items.filter(x => x.invoiceCode === r.invoiceCode)
+                        // Trae pagos por CADA ENTREGA (no por pedido)
+                        const allPayments = []
+                        for (const row of rowsSameInvoice) {
+                          const pp = await listPaymentsByDelivery(row.deliveryId).catch(()=>[])
+                          if (Array.isArray(pp)) allPayments.push(...pp)
+                        }
+                        const html = buildInvoicePaymentsHTML({
+                          company: COMPANY,
+                          client: { customerName: data.customerName, RUC: data.RUC },
+                          invoiceCode: r.invoiceCode,
+                          rows: rowsSameInvoice,
+                          payments: allPayments
+                        })
+                        printHTML(html)
+                      } catch (e) {
+                        console.error(e)
+                        alert('No se pudo generar el informe de la factura.')
+                      }
+                    }}
+                  >
+                    Imprimir (factura)
                   </button>
                 )}
               </div>
@@ -342,21 +373,20 @@ export default function CuentasPorCobrarCliente() {
           )
         })}
 
-        {items.length===0 && <div className="muted">Sin pedidos</div>}
+        {items.length===0 && <div className="muted">Sin entregas</div>}
       </div>
 
       {/* Modales */}
       <PayModal
         open={payOpen}
         onClose={()=>setPayOpen(false)}
-        orderId={payOrderId}
+        deliveryId={payDeliveryId}
         onDone={load}
       />
-
       <PaymentsHistoryModal
         open={histOpen}
         onClose={()=>setHistOpen(false)}
-        orderId={histOrderId}
+        deliveryId={histDeliveryId}
       />
     </section>
   )

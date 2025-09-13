@@ -1,12 +1,14 @@
 // backend/src/server.js
-import express from 'express';
-import cors from 'cors';
-import 'dotenv/config';
+import express from 'express'
+import cors from 'cors'
+import 'dotenv/config'
 
-import authRouter from './routes/auth.routes.js';
-import adminRouter from './routes/admin.routes.js';
-import { authRequired } from './middleware/auth.js';
-import { testConnection } from './db.js';
+import { authRequired } from './middleware/auth.js'
+import { testConnection } from './db.js'
+
+// Rutas
+import authRouter from './routes/auth.routes.js'
+import adminRouter from './routes/admin.routes.js'
 import { zonesRouter } from './routes/zones.routes.js'
 import { colorsRouter } from './routes/colors.routes.js'
 import { materialsRouter } from './routes/materials.routes.js'
@@ -28,16 +30,30 @@ import { finishedInputRouter } from './routes/finished-input.routes.js'
 import pricesRouter from './routes/prices.routes.js'
 import { invoicesRouter } from './routes/invoices.routes.js'
 import receivablesRouter from './routes/receivables.routes.js'
+import docsRoutes from './routes/docs.routes.js'
 
-const app = express();
-app.use(cors({ origin: 'http://localhost:5173' }));
-app.use(express.json());
+// PDFs estáticos (subidos)
+import { DOCS_DIR } from './utils/upload.js'
 
-app.get('/', (_req, res) => res.send('API OK'));
+const app = express()
 
-// Rutas
-app.use('/api/auth', authRouter);
-app.use('/api/admin', adminRouter);
+// CORS
+const FRONTEND_ORIGIN = process.env.FRONTEND_ORIGIN || 'http://localhost:5173'
+app.use(cors({ origin: FRONTEND_ORIGIN }))
+
+// Body parser
+app.use(express.json())
+
+// Salud
+app.get('/', (_req, res) => res.send('API OK'))
+
+// Archivos subidos públicos
+// Ej: http://localhost:4000/uploads/Factura_F001-001__1717171717.pdf
+app.use('/uploads', express.static(DOCS_DIR))
+
+// === Rutas API ===
+app.use('/api/auth', authRouter)
+app.use('/api/admin', adminRouter)
 app.use('/api/customers', customersRouter)
 app.use('/api', suppliersRouter)
 app.use('/api', purchasesRouter)
@@ -59,8 +75,15 @@ app.use('/api', mermaRouter)
 app.use('/api/prices', pricesRouter)
 app.use('/api/invoices', invoicesRouter)
 app.use('/api/receivables', receivablesRouter)
-// al final de tu configuración de Express
-app.use((err, req, res, next) => {
+app.use('/api/docs', docsRoutes)
+
+// Ruta protegida de ejemplo
+app.get('/api/secure/hello', authRequired, (req, res) => {
+  res.json({ message: `Hola ${req.user.email}` })
+})
+
+// Handler global de errores
+app.use((err, _req, res, _next) => {
   console.error('[GLOBAL ERROR]', err)
   const isDev = process.env.NODE_ENV !== 'production'
   res.status(err.status || 500).json({
@@ -70,21 +93,16 @@ app.use((err, req, res, next) => {
   })
 })
 
-
-// Ejemplo protegido
-app.get('/api/secure/hello', authRequired, (req, res) => {
-  res.json({ message: `Hola ${req.user.email}` });
-});
-
-const PORT = process.env.PORT || 4000;
+const PORT = process.env.PORT || 4000
 app.listen(PORT, async () => {
   try {
-    const ok = await testConnection();
+    const ok = await testConnection()
     console.log(ok
       ? `DB conectada → ${process.env.DB_NAME}`
-      : 'No se pudo verificar la conexión DB');
+      : 'No se pudo verificar la conexión DB'
+    )
   } catch (e) {
-    console.error('Error conectando a la DB:', e?.code || e?.message);
+    console.error('Error conectando a la DB:', e?.code || e?.message)
   }
-  console.log(`Backend escuchando en http://localhost:${PORT}`);
-});
+  console.log(`Backend escuchando en http://localhost:${PORT}`)
+})

@@ -2,8 +2,8 @@
 import { z } from 'zod'
 import {
   listCustomersWithDebt,
-  getCustomerReceivable,
-  getReceivablesSummary
+  getCustomerReceivable,   // usamos el nombre real del modelo
+  getReceivablesSummary,
 } from '../models/receivables.model.js'
 
 export async function listCustomersWithDebtCtrl(req, res) {
@@ -19,33 +19,37 @@ export async function listCustomersWithDebtCtrl(req, res) {
     const data = await listCustomersWithDebt({ q, balance, limit, offset })
     res.json(data)
   } catch (e) {
-    console.error(e)
+    console.error('[listCustomersWithDebtCtrl]', e)
     res.status(500).json({ error:'Error listando cuentas por cobrar' })
   }
 }
 
 export async function getCustomerReceivableCtrl(req, res) {
   try {
-    // balance: all | with | without (default: all)
-    // from/to: YYYY-MM-DD (opcional)
-    const schema = z.object({
+    // tomamos el nombre de parámetro que usará la ruta: :customerId
+    const pathSchema = z.object({
+      customerId: z.coerce.number().int().positive(),
+    })
+    const { customerId } = pathSchema.parse(req.params)
+
+    const querySchema = z.object({
       balance: z.enum(['all','with','without']).optional().default('all'),
       from: z.string().optional(),
       to: z.string().optional(),
     })
-    const { balance, from, to } = schema.parse(req.query)
-    const id = Number(req.params.id)
+    const { balance, from, to } = querySchema.parse(req.query)
 
     const data = await getCustomerReceivable({
-      customerId: id,
+      customerId,
       balance,
       from,
       to,
     })
+
     res.json(data)
   } catch (e) {
-    console.error(e)
-    res.status(500).json({ error:'Error obteniendo cuentas del cliente' })
+    console.error('[getCustomerReceivableCtrl] error:', e)
+    res.status(500).json({ error: 'Error obteniendo cuentas por cobrar del cliente' })
   }
 }
 
@@ -54,7 +58,7 @@ export async function getReceivablesSummaryCtrl(_req, res) {
     const data = await getReceivablesSummary()
     res.json(data)
   } catch (e) {
-    console.error(e)
+    console.error('[getReceivablesSummaryCtrl]', e)
     res.status(500).json({ error:'Error obteniendo resumen global' })
   }
 }

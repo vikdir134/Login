@@ -2,16 +2,24 @@
 import { Router } from 'express'
 import { authRequired } from '../middleware/auth.js'
 import { requireRole } from '../middleware/roles.js'
-import { listPaymentsByOrder, createPayment } from '../controllers/payments.controller.js'
+import {
+  listPaymentsByDeliveryCtrl,
+  createPaymentCtrl,
+} from '../controllers/payments.controller.js'
 
 const router = Router()
-router.use(authRequired)
 
-router.get('/orders/:orderId/payments', requireRole(['JEFE','ADMINISTRADOR']), listPaymentsByOrder)
-router.post('/orders/:orderId/payments',
-  requireRole(['JEFE','ADMINISTRADOR']),
-  (req, res, next) => { req.body.orderId = Number(req.params.orderId); next() },
-  createPayment
+// Requiere login + rol
+router.use(authRequired, requireRole(['JEFE','ADMINISTRADOR']))
+
+// Historial por ENTREGA
+router.get('/deliveries/:deliveryId/payments', listPaymentsByDeliveryCtrl)
+
+// Crear pago POR ENTREGA
+router.post(
+  '/deliveries/:deliveryId/payments',
+  (req, _res, next) => { req.body.orderDeliveryId = Number(req.params.deliveryId); next() },
+  createPaymentCtrl
 )
 
 export default router

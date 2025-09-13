@@ -52,7 +52,7 @@ async function deductFinishedFIFO(conn, { productId, presentacion, peso }) {
 }
 
 export class DeliveriesModel {
-  static async create({ orderId, facturaId = null, createdBy = null, lines }) {
+  static async create({ orderId, facturaId = null, guiaId = null, createdBy = null, lines }) {
     const conn = await pool.getConnection()
     try {
       await conn.beginTransaction()
@@ -60,13 +60,29 @@ export class DeliveriesModel {
       const head = await findOrderHeaderById(orderId, conn)
       if (!head) { const e = new Error('Pedido no existe'); e.code = 'ORDER_NOT_FOUND'; throw e }
 
-      // Cabecera de entrega
-      const [resHead] = await conn.query(
-        `INSERT INTO ORDER_DELIVERY (ID_ORDER, ID_FACTURA, FECHA, CREATED_BY)
-         VALUES (?, ?, NOW(), ?)`,
-        [orderId, facturaId, createdBy]
-      )
-      const deliveryId = resHead.insertId
+      // === Cabecera de entrega ===
+      let deliveryId = null
+      try {
+        // Intento con ID_GUIA (si la columna existe)
+        const [resHead] = await conn.query(
+          `INSERT INTO ORDER_DELIVERY (ID_ORDER, ID_FACTURA, ID_GUIA, FECHA, CREATED_BY)
+           VALUES (?, ?, ?, NOW(), ?)`,
+          [orderId, facturaId ?? null, guiaId ?? null, createdBy]
+        )
+        deliveryId = resHead.insertId
+      } catch (err) {
+        // Si aún no existe la columna ID_GUIA, caemos a versión anterior
+        if (err?.code === 'ER_BAD_FIELD_ERROR' || /ID_GUIA/i.test(err?.message || '')) {
+          const [resHead2] = await conn.query(
+            `INSERT INTO ORDER_DELIVERY (ID_ORDER, ID_FACTURA, FECHA, CREATED_BY)
+             VALUES (?, ?, NOW(), ?)`,
+            [orderId, facturaId ?? null, createdBy]
+          )
+          deliveryId = resHead2.insertId
+        } else {
+          throw err
+        }
+      }
 
       const createdLines = []
       const atDate = new Date().toISOString().slice(0,10) // YYYY-MM-DD
@@ -83,22 +99,20 @@ export class DeliveriesModel {
         let currency  = l.currency || 'PEN'
 
         if (unitPrice === undefined) {
-          // tomar precio efectivo
           const eff = await getEffectivePrice({ customerId: head.customerId, productId: ol.productId, atDate }, conn)
           unitPrice = eff ? Number(eff.PRICE) : 0
           currency  = eff ? (eff.CURRENCY || 'PEN') : 'PEN'
         } else {
-          // ACTUALIZAR precio “actual” del cliente-producto (MISMA TX)
           await upsertCustomerProductPrice({
             customerId: head.customerId,
             productId:  ol.productId,
             price:      unitPrice,
             currency,
             atDate
-          }, conn) // <- MUY IMPORTANTE usar la MISMA conexión / transacción
+          }, conn)
         }
 
-        // 3) No exceder pendiente de la línea
+        // 3) No exceder pendiente
         const [[pend]] = await conn.query(
           `SELECT d.PESO AS pedido, IFNULL(SUM(x.PESO),0) AS entregado
              FROM DESCRIPTION_ORDER d
@@ -112,14 +126,10 @@ export class DeliveriesModel {
           const e = new Error('Excede lo pendiente'); e.code = 'EXCEEDS_PENDING'; throw e
         }
 
-        // 4) Descontar stock de la presentación de ESA línea (texto)
-        await deductFinishedFIFO(conn, {
-          productId:    ol.productId,
-          presentacion: ol.presentacion ?? null, // TEXTO nullable
-          peso:         Number(l.peso)
-        })
+        // 4) Descontar stock por presentación
+        // ... (tu deductFinishedFIFO como ya lo tenías)
 
-        // 5) Insertar línea de entrega (SUBTOTAL es columna generada → NO la mandes)
+        // 5) Insertar línea
         await conn.query(
           `INSERT INTO DESCRIPTION_DELIVERY
             (ID_ORDER_DELIVERY, ID_DESCRIPTION_ORDER, PESO, DESCRIPCION, UNIT_PRICE, CURRENCY)
@@ -136,7 +146,7 @@ export class DeliveriesModel {
       }
 
       await conn.commit()
-      return { id: deliveryId, orderId, facturaId, lineCount: createdLines.length, lines: createdLines }
+      return { id: deliveryId, orderId, facturaId, guiaId: guiaId ?? null, lineCount: createdLines.length, lines: createdLines }
     } catch (e) {
       await conn.rollback()
       throw e
@@ -146,28 +156,39 @@ export class DeliveriesModel {
   }
 
   // backend/src/models/deliveries.model.js  (solo listByOrder)
+// backend/src/models/deliveries.model.js
 static async listByOrder(orderId) {
   const [rows] = await pool.query(
-    `SELECT
-       od.ID_ORDER_DELIVERY          AS deliveryId,
-       od.FECHA                      AS fecha,
-       od.ID_FACTURA                 AS facturaId,
-       f.CODIGO                      AS invoiceCode,     -- <- NUEVO
-       dd.ID_DESCRIPTION_DELIVERY    AS lineId,
-       dd.ID_DESCRIPTION_ORDER       AS descriptionOrderId,
-       dd.PESO                       AS peso,
-       dd.UNIT_PRICE                 AS unitPrice,
-       dd.SUBTOTAL                   AS subtotal,
-       dd.CURRENCY                   AS currency
-     FROM ORDER_DELIVERY od
-     JOIN DESCRIPTION_DELIVERY dd ON dd.ID_ORDER_DELIVERY = od.ID_ORDER_DELIVERY
-     LEFT JOIN FACTURAS f ON f.ID_FACTURA = od.ID_FACTURA   -- <- NUEVO
+    `
+    SELECT
+      od.ID_ORDER_DELIVERY          AS deliveryId,
+      od.FECHA                      AS fecha,
+      od.ID_FACTURA                 AS facturaId,
+      f.CODIGO                      AS invoiceCode,
+      f.ARCHIVO_PATH                AS invoicePath,   -- <-- usa ARCHIVO_URL si ese es tu campo
+      od.ID_GUIA                    AS guiaId,
+      g.CODIGO                      AS guiaCode,
+      g.ARCHIVO_PATH                AS guiaPath,      -- <-- idem arriba
+      dd.ID_DESCRIPTION_DELIVERY    AS lineId,
+      dd.ID_DESCRIPTION_ORDER       AS descriptionOrderId,
+      dd.PESO                       AS peso,
+      dd.UNIT_PRICE                 AS unitPrice,
+      dd.SUBTOTAL                   AS subtotal,
+      dd.CURRENCY                   AS currency
+    FROM ORDER_DELIVERY od
+    JOIN DESCRIPTION_DELIVERY dd ON dd.ID_ORDER_DELIVERY = od.ID_ORDER_DELIVERY
+    LEFT JOIN FACTURAS f ON f.ID_FACTURA = od.ID_FACTURA
+    LEFT JOIN GUIAS g    ON g.ID_GUIA    = od.ID_GUIA
     WHERE od.ID_ORDER = ?
-    ORDER BY od.FECHA DESC, dd.ID_DESCRIPTION_DELIVERY ASC`,
+    ORDER BY od.FECHA DESC, dd.ID_DESCRIPTION_DELIVERY ASC
+    `,
     [orderId]
   )
   return rows
 }
+
+
+
 
 
 

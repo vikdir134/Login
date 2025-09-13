@@ -59,20 +59,41 @@ export default function EntregaDetalle() {
   const entregadoTotal  = useMemo(() => lines.reduce((a, l) => a + l.entregado, 0), [lines])
   const avanceCalc = pedidoPesoTotal ? Math.min(100, (entregadoTotal / pedidoPesoTotal) * 100) : 0
 
-  // AGRUPAR entregas por deliveryId + totales
+  // AGRUPAR entregas por deliveryId + totales + archivos (factura/guía/nota crédito)
   const deliveriesGrouped = useMemo(() => {
     const map = new Map()
     for (const r of deliveries) {
       const k = r.deliveryId
-      if (!map.has(k)) map.set(k, { deliveryId: k, fecha: r.fecha, facturaId: r.facturaId, invoiceCode: r.invoiceCode, currency: r.currency || 'PEN', lines: [] })
-      map.get(k).lines.push(r)
+      if (!map.has(k)) {
+        map.set(k, {
+          deliveryId: k,
+          fecha: r.fecha,
+          facturaId: r.facturaId,
+          invoiceCode: r.invoiceCode,            // string opcional
+          invoiceUrl: r.invoiceUrl,              // string opcional (/uploads/...)
+          guiaCode: r.guiaCode,                  // string opcional
+          guiaUrl: r.guiaUrl,                    // string opcional
+          creditNoteCode: r.creditNoteCode,      // string opcional
+          creditNoteUrl: r.creditNoteUrl,        // string opcional
+          currency: r.currency || 'PEN',
+          lines: []
+        })
+      }
+      const g = map.get(k)
+      // Mantener primeros valores no vacíos por si vienen repetidos por línea
+      g.invoiceCode = g.invoiceCode || r.invoiceCode
+      g.invoiceUrl  = g.invoiceUrl  || r.invoiceUrl
+      g.guiaCode    = g.guiaCode    || r.guiaCode
+      g.guiaUrl     = g.guiaUrl     || r.guiaUrl
+      g.creditNoteCode = g.creditNoteCode || r.creditNoteCode
+      g.creditNoteUrl  = g.creditNoteUrl  || r.creditNoteUrl
+      g.lines.push(r)
     }
     const arr = Array.from(map.values()).map(g => {
       const subtotal = g.lines.reduce((a,r)=> a + Number(r.subtotal||0), 0)
       const totalConIGV = +(subtotal * (1 + IGV)).toFixed(2)
       return { ...g, subtotal, totalConIGV }
     })
-    // ordenar por fecha desc
     return arr.sort((a,b)=> new Date(b.fecha) - new Date(a.fecha))
   }, [deliveries])
 
@@ -97,7 +118,7 @@ export default function EntregaDetalle() {
       <div className="topbar" style={{ marginBottom:0 }}>
         <h3 style={{ margin:0 }}>Pedido #{order.id}</h3>
         <div style={{ display:'flex', gap:8 }}>
-          <button className="btn-secondary" onClick={()=> navigate('/app/entregas/nueva')}>← Volver</button> 
+          <button className="btn-secondary" onClick={()=> navigate('/app/entregas/nueva')}>← Volver</button>
           {puedeEntregar && order.state !== 'CANCELADO' && (
             <button className="btn" onClick={()=>setOpenCreate(true)}>Nueva entrega</button>
           )}
@@ -146,10 +167,44 @@ export default function EntregaDetalle() {
             <div>
               <b>Entrega #{grp.deliveryId}</b> · {new Date(grp.fecha).toLocaleString()}
             </div>
-            <div className="muted" style={{ color: textMuted }}>
-              Factura: <b>{grp.invoiceCode ? grp.invoiceCode : '—'}</b>
+
+            {/* Bloque documentos */}
+            <div style={{ display:'flex', gap:8, alignItems:'center', flexWrap:'wrap' }}>
+              {/* Factura */}
+              <div className="muted" style={{ color: textMuted }}>
+                Factura: <b>{grp.invoiceCode ? grp.invoiceCode : '—'}</b>
+              </div>
+              {grp.invoiceUrl && (
+                <a className="btn-secondary" href={grp.invoiceUrl} target="_blank" rel="noreferrer">
+                  Ver factura (PDF)
+                </a>
+              )}
+
+              {/* Guía */}
+              <div className="muted" style={{ color: textMuted }}>
+                · Guía: <b>{grp.guiaCode ? grp.guiaCode : '—'}</b>
+              </div>
+              {grp.guiaUrl && (
+                <a className="btn-secondary" href={grp.guiaUrl} target="_blank" rel="noreferrer">
+                  Ver guía (PDF)
+                </a>
+              )}
+
+              {/* Nota de crédito */}
+              {grp.creditNoteCode && (
+                <span className="badge" style={{ background:'#f1f5f9', color:'#0f172a', borderRadius:9999, padding:'4px 10px' }}>
+                  NC: {grp.creditNoteCode}
+                </span>
+              )}
+              {grp.creditNoteUrl && (
+                <a className="btn-secondary" href={grp.creditNoteUrl} target="_blank" rel="noreferrer">
+                  Ver NC (PDF)
+                </a>
+              )}
             </div>
+
             <div style={{ flex:1 }} />
+
             <div className="muted" style={{ color: textMuted }}>
               Subtotal: {fmtMoney(grp.subtotal)} {grp.currency} · <b>Total (c/IGV): {fmtMoney(grp.totalConIGV)} {grp.currency}</b>
             </div>

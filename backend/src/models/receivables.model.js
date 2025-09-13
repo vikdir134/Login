@@ -16,59 +16,48 @@ function buildCustomerWhere({ q }) {
 }
 
 /**
- * Lista clientes con sus totales de cuentas por cobrar en PEN:
- * - totalPedidosPEN = SUM(subtotal)*(1+IGV_RATE)
- * - totalPagadoPEN  = SUM(pagos)
- * - saldoPEN        = total - pagado
- *
- * Soporta búsqueda (q) y "solo con saldo" (onlyWithDebt) desde SQL (HAVING).
- * Paginación: limit/offset sobre el agregado.
+ * Lista clientes con sus totales de cuentas por cobrar en PEN
  */
 export async function listCustomersWithDebt({ q, balance = 'all', limit = 30, offset = 0 }) {
   const { where, params } = buildCustomerWhere({ q })
 
   const baseSql = `
     SELECT
-      c.ID_CUSTOMER                                AS customerId,
-      c.RAZON_SOCIAL                               AS customerName,
-      c.RUC                                        AS RUC,
-      IFNULL(SUM(dd.SUBTOTAL), 0) * (1 + ${IGV_RATE}) AS totalPedidosPEN,
+      c.ID_CUSTOMER                                  AS customerId,
+      c.RAZON_SOCIAL                                 AS customerName,
+      c.RUC                                          AS RUC,
+      IFNULL(SUM(dd.SUBTOTAL), 0) * (1 + ${IGV_RATE})  AS totalPedidosPEN,
       IFNULL((
         SELECT SUM(p.AMOUNT)
         FROM PAYMENTS p
         WHERE p.ID_CUSTOMER = c.ID_CUSTOMER AND p.CURRENCY = 'PEN'
-      ), 0)                                        AS totalPagadoPEN
+      ), 0)                                          AS totalPagadoPEN
     FROM CUSTOMERS c
     LEFT JOIN ORDERS o              ON o.ID_CUSTOMER = c.ID_CUSTOMER
     LEFT JOIN ORDER_DELIVERY od     ON od.ID_ORDER = o.ID_ORDER
-    LEFT JOIN DESCRIPTION_DELIVERY dd ON dd.ID_ORDER_DELIVERY = od.ID_ORDER_DELIVERY AND dd.CURRENCY='PEN'
+    LEFT JOIN DESCRIPTION_DELIVERY dd
+           ON dd.ID_ORDER_DELIVERY = od.ID_ORDER_DELIVERY
+          AND dd.CURRENCY='PEN'
     ${where}
     GROUP BY c.ID_CUSTOMER, c.RAZON_SOCIAL, c.RUC
   `
 
-  // WHERE/HAVING según balance
   const having =
     balance === 'with'
       ? 'WHERE (t.totalPedidosPEN - t.totalPagadoPEN) > 0.000001'
       : balance === 'without'
       ? 'WHERE ABS(t.totalPedidosPEN - t.totalPagadoPEN) <= 0.000001'
-      : '' // all
+      : ''
 
-  // total para paginación
   const countSql = `
     SELECT COUNT(*) AS total
     FROM (
-      SELECT
-        customerId,
-        totalPedidosPEN,
-        totalPagadoPEN
-      FROM (${baseSql}) t
+      SELECT customerId, totalPedidosPEN, totalPagadoPEN FROM (${baseSql}) t
     ) t
     ${having}
   `
   const [[{ total }]] = await pool.query(countSql, params)
 
-  // data paginada
   const dataSql = `
     SELECT
       t.customerId, t.customerName, t.RUC,
@@ -84,21 +73,17 @@ export async function listCustomersWithDebt({ q, balance = 'all', limit = 30, of
   return { items: rows, total: Number(total || 0) }
 }
 
-
 /**
- * Detalle de cuentas por cobrar de un cliente:
- * - Cabezera con total/pagado/saldo en PEN (total con IGV).
- * - Ítems por pedido con total (con IGV), pagado por pedido y saldo por pedido.
- * - Soporta onlyWithBalance (solo pedidos con saldo).
+ * Detalle de CxC por cliente (por ENTREGAS)
+ * → Pagos sumados por ID_ORDER_DELIVERY (no por pedido).
  */
-// backend/src/models/receivables.model.js
 export async function getCustomerReceivable({ customerId, balance='all', from, to }) {
+  // ---------- CABECERA ----------
   const paramsHead = [customerId]
-  let whereDate = ''
-  if (from) { whereDate += ' AND o.FECHA >= ? '; paramsHead.push(from + ' 00:00:00') }
-  if (to)   { whereDate += ' AND o.FECHA <= ? '; paramsHead.push(to   + ' 23:59:59') }
+  let whereDateHead = ''
+  if (from) { whereDateHead += ' AND od.FECHA >= ? '; paramsHead.push(from + ' 00:00:00') }
+  if (to)   { whereDateHead += ' AND od.FECHA <= ? '; paramsHead.push(to   + ' 23:59:59') }
 
-  // HEADER: total con IGV (PEN)
   const [[head]] = await pool.query(
     `
     SELECT
@@ -106,12 +91,18 @@ export async function getCustomerReceivable({ customerId, balance='all', from, t
       c.RAZON_SOCIAL AS customerName,
       c.RUC          AS RUC,
       IFNULL(SUM(dd.SUBTOTAL),0) * (1 + ${IGV_RATE}) AS totalPedidosPEN,
-      IFNULL((SELECT SUM(p.AMOUNT) FROM PAYMENTS p WHERE p.ID_CUSTOMER = c.ID_CUSTOMER AND p.CURRENCY='PEN'),0) AS totalPagadoPEN
+      IFNULL((
+        SELECT SUM(p.AMOUNT)
+        FROM PAYMENTS p
+        WHERE p.ID_CUSTOMER = c.ID_CUSTOMER AND p.CURRENCY='PEN'
+      ),0) AS totalPagadoPEN
     FROM CUSTOMERS c
-    LEFT JOIN ORDERS o         ON o.ID_CUSTOMER = c.ID_CUSTOMER
+    LEFT JOIN ORDERS o          ON o.ID_CUSTOMER = c.ID_CUSTOMER
     LEFT JOIN ORDER_DELIVERY od ON od.ID_ORDER = o.ID_ORDER
-    LEFT JOIN DESCRIPTION_DELIVERY dd ON dd.ID_ORDER_DELIVERY = od.ID_ORDER_DELIVERY AND dd.CURRENCY='PEN'
-    WHERE c.ID_CUSTOMER = ? ${whereDate}
+    LEFT JOIN DESCRIPTION_DELIVERY dd
+           ON dd.ID_ORDER_DELIVERY = od.ID_ORDER_DELIVERY
+          AND dd.CURRENCY='PEN'
+    WHERE c.ID_CUSTOMER = ? ${whereDateHead}
     `,
     paramsHead
   )
@@ -120,54 +111,57 @@ export async function getCustomerReceivable({ customerId, balance='all', from, t
   const totalPagadoPEN  = Number(head?.totalPagadoPEN  || 0)
   const saldoPEN        = +(totalPedidosPEN - totalPagadoPEN).toFixed(2)
 
-  // DETALLE: **solo pedidos con entregas** y total con IGV
+  // ---------- DETALLE POR ENTREGA ----------
   const paramsDet = [customerId]
   let whereDateDet = ''
-  if (from) { whereDateDet += ' AND o.FECHA >= ? '; paramsDet.push(from + ' 00:00:00') }
-  if (to)   { whereDateDet += ' AND o.FECHA <= ? '; paramsDet.push(to   + ' 23:59:59') }
+  if (from) { whereDateDet += ' AND od.FECHA >= ? '; paramsDet.push(from + ' 00:00:00') }
+  if (to)   { whereDateDet += ' AND od.FECHA <= ? '; paramsDet.push(to   + ' 23:59:59') }
 
-  const [detalle] = await pool.query(
+  const [rows] = await pool.query(
     `
     SELECT
-      o.ID_ORDER AS orderId,
-      o.FECHA    AS fecha,
-      s.DESCRIPCION AS estado,
-      IFNULL(tot.totalPedido,0) * (1 + ${IGV_RATE}) AS total,        -- total con IGV
-      IFNULL(pay.totalPagado,0)                     AS pagado,
-      (IFNULL(tot.totalPedido,0) * (1 + ${IGV_RATE}) - IFNULL(pay.totalPagado,0)) AS saldo,
-      inv.invoices
-    FROM ORDERS o
-    JOIN STATES s ON s.ID_STATE = o.ID_STATE
-    /* 👇 Este JOIN asegura que el pedido tenga al menos una entrega */
-    JOIN ORDER_DELIVERY od ON od.ID_ORDER = o.ID_ORDER
+      /* claves */
+      od.ID_ORDER_DELIVERY                                      AS deliveryId,
+      o.ID_ORDER                                                AS orderId,
+      od.FECHA                                                  AS fecha,
+      /* documentos */
+      f.CODIGO                                                  AS invoiceCode,
+      f.ARCHIVO_PATH                                            AS invoicePath,
+      g.CODIGO                                                  AS guiaCode,
+      g.ARCHIVO_PATH                                            AS guiaPath,
+      /* montos */
+      IFNULL(tot.totalEntrega,0) * (1 + ${IGV_RATE})            AS total,
+      IFNULL(payd.totalPagadoEntrega,0)                         AS pagado,
+      (IFNULL(tot.totalEntrega,0) * (1 + ${IGV_RATE}) - IFNULL(payd.totalPagadoEntrega,0)) AS saldo
+    FROM ORDER_DELIVERY od
+    JOIN ORDERS o           ON o.ID_ORDER = od.ID_ORDER
+    JOIN CUSTOMERS c        ON c.ID_CUSTOMER = o.ID_CUSTOMER
+    LEFT JOIN FACTURAS f    ON f.ID_FACTURA = od.ID_FACTURA
+    LEFT JOIN GUIAS g       ON g.ID_GUIA    = od.ID_GUIA
+    /* total por ENTREGA (solo PEN) */
     LEFT JOIN (
-      SELECT od.ID_ORDER, SUM(dd.SUBTOTAL) AS totalPedido
-      FROM ORDER_DELIVERY od
-      JOIN DESCRIPTION_DELIVERY dd ON dd.ID_ORDER_DELIVERY = od.ID_ORDER_DELIVERY AND dd.CURRENCY='PEN'
-      GROUP BY od.ID_ORDER
-    ) tot ON tot.ID_ORDER = o.ID_ORDER
+      SELECT dd.ID_ORDER_DELIVERY, SUM(dd.SUBTOTAL) AS totalEntrega
+      FROM DESCRIPTION_DELIVERY dd
+      WHERE dd.CURRENCY = 'PEN'
+      GROUP BY dd.ID_ORDER_DELIVERY
+    ) tot ON tot.ID_ORDER_DELIVERY = od.ID_ORDER_DELIVERY
+    /* pagos por ENTREGA (solo los que están ligados a la entrega) */
     LEFT JOIN (
-      SELECT p.ID_ORDER, SUM(p.AMOUNT) AS totalPagado
+      SELECT p.ID_ORDER_DELIVERY, SUM(p.AMOUNT) AS totalPagadoEntrega
       FROM PAYMENTS p
-      WHERE p.CURRENCY='PEN'
-      GROUP BY p.ID_ORDER
-    ) pay ON pay.ID_ORDER = o.ID_ORDER
-    LEFT JOIN (
-      SELECT od.ID_ORDER, GROUP_CONCAT(DISTINCT f.CODIGO ORDER BY f.CODIGO SEPARATOR ', ') AS invoices
-      FROM ORDER_DELIVERY od
-      JOIN FACTURAS f ON f.ID_FACTURA = od.ID_FACTURA
-      GROUP BY od.ID_ORDER
-    ) inv ON inv.ID_ORDER = o.ID_ORDER
-    WHERE o.ID_CUSTOMER = ? ${whereDateDet}
-    GROUP BY o.ID_ORDER, o.FECHA, s.DESCRIPCION, tot.totalPedido, pay.totalPagado, inv.invoices
-    ORDER BY o.FECHA DESC, o.ID_ORDER DESC
+      WHERE p.CURRENCY = 'PEN' AND p.ID_ORDER_DELIVERY IS NOT NULL
+      GROUP BY p.ID_ORDER_DELIVERY
+    ) payd ON payd.ID_ORDER_DELIVERY = od.ID_ORDER_DELIVERY
+    WHERE c.ID_CUSTOMER = ? ${whereDateDet}
+    ORDER BY od.FECHA DESC, od.ID_ORDER_DELIVERY DESC
     `,
     paramsDet
   )
 
-  let items = detalle
-  if (balance === 'with')       items = items.filter(d => Number(d.saldo) > 0.000001)
-  else if (balance === 'without') items = items.filter(d => Math.abs(Number(d.saldo)) <= 0.000001)
+  // Filtro por balance si se pidió
+  let items = rows
+  if (balance === 'with')         items = items.filter(r => Number(r.saldo) >  0.000001)
+  else if (balance === 'without') items = items.filter(r => Math.abs(Number(r.saldo)) <= 0.000001)
 
   return {
     customerId,
@@ -180,10 +174,8 @@ export async function getCustomerReceivable({ customerId, balance='all', from, t
   }
 }
 
-
-
 /**
- * Resumen global: totales con IGV vs pagos (PEN).
+ * Resumen global
  */
 export async function getReceivablesSummary() {
   const [[r]] = await pool.query(
@@ -192,12 +184,21 @@ export async function getReceivablesSummary() {
       IFNULL(SUM(dd.SUBTOTAL),0) * (1 + ${IGV_RATE}) AS totalPedidosPEN,
       IFNULL((SELECT SUM(p.AMOUNT) FROM PAYMENTS p WHERE p.CURRENCY='PEN'),0) AS totalPagadoPEN
     FROM ORDER_DELIVERY od
-    JOIN DESCRIPTION_DELIVERY dd ON dd.ID_ORDER_DELIVERY = od.ID_ORDER_DELIVERY AND dd.CURRENCY='PEN'
+    JOIN DESCRIPTION_DELIVERY dd
+      ON dd.ID_ORDER_DELIVERY = od.ID_ORDER_DELIVERY
+     AND dd.CURRENCY='PEN'
     `
   )
   const totalPedidosPEN = Number(r?.totalPedidosPEN || 0)
   const totalPagadoPEN  = Number(r?.totalPagadoPEN  || 0)
   const saldoPEN        = +(totalPedidosPEN - totalPagadoPEN).toFixed(2)
 
-  return { totalPedidosPEN: +totalPedidosPEN.toFixed(2), totalPagadoPEN: +totalPagadoPEN.toFixed(2), saldoPEN }
+  return {
+    totalPedidosPEN: +totalPedidosPEN.toFixed(2),
+    totalPagadoPEN:  +totalPagadoPEN.toFixed(2),
+    saldoPEN
+  }
 }
+
+// Alias para mantener compatibilidad con el controller
+export { getCustomerReceivable as getCustomerReceivableByDeliveries }

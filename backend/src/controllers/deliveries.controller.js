@@ -7,33 +7,42 @@ const lineSchema = z.object({
   descriptionOrderId: z.number().int().positive(),
   peso: z.number().positive(),
   descripcion: z.string().max(50).optional().nullable(),
-  unitPrice: z.number().nonnegative().optional().nullable()
+  unitPrice: z.number().nonnegative().optional().nullable(),
+  currency: z.string().optional().nullable()
 })
 const createDeliverySchema = z.object({
   orderId: z.number().int().positive(),
   facturaId: z.number().int().positive().optional().nullable(),
-  fecha: z.string().min(8).optional(),   // opcional → si no viene usamos NOW()
+  guiaId: z.number().int().positive().optional().nullable(),            // ⬅️ NUEVO
+  fecha: z.string().min(8).optional(),
+  allowNoDocs: z.boolean().optional(),                                  // ⬅️ NUEVO (confirmación)
   lines: z.array(lineSchema).nonempty()
 })
 
 // src/controllers/deliveries.controller.js
 export async function createDelivery(req, res) {
   try {
-    const { orderId, facturaId, lines } = req.body
+    const parsed = createDeliverySchema.parse(req.body)
+    const { orderId, facturaId = null, guiaId = null, allowNoDocs = false, lines } = parsed
     const createdBy = req.user?.id ?? null
-    const out = await DeliveriesModel.create({ orderId, facturaId: facturaId ?? null, createdBy, lines })
+
+    // Si no hay factura ni guía, pedir confirmación explícita
+    if (!facturaId && !guiaId && !allowNoDocs) {
+      return res.status(409).json({
+        error: 'Estás registrando una entrega sin factura ni guía. Confirma para continuar.',
+        code: 'CONFIRM_NODOCS_REQUIRED'
+      })
+    }
+
+    const out = await DeliveriesModel.create({ orderId, facturaId, guiaId, createdBy, lines })
     res.status(201).json(out)
   } catch (e) {
-    // Errores de negocio conocidos
     if (e.code === 'ORDER_NOT_FOUND')     return res.status(404).json({ error: 'Pedido no existe', code: e.code })
     if (e.code === 'ORDER_LINE_INVALID')  return res.status(400).json({ error: 'Línea de pedido inválida', code: e.code })
     if (e.code === 'EXCEEDS_PENDING')     return res.status(400).json({ error: 'Excede lo pendiente', code: e.code })
-    if (e.code === 'PT_STOCK_NOT_ENOUGH') return res.status(400).json({ error: e.message || 'No hay suficiente stock en el almacén', code: e.code })
+    if (e.code === 'PT_STOCK_NOT_ENOUGH') return res.status(400).json({ error: e.message || 'No hay suficiente stock', code: e.code })
 
-    // Log completo a la terminal SIEMPRE
     console.error('[createDelivery] Unhandled error:', e)
-
-    // En desarrollo devuelve más detalle para depurar
     const isDev = process.env.NODE_ENV !== 'production'
     return res.status(500).json({
       error: 'Error creando entrega',
