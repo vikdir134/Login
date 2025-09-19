@@ -6,7 +6,12 @@ import { createPayment, listPaymentsByDelivery } from '../api/payments'
 
 import { COMPANY } from '../config/company'
 import { printHTML } from '../utils/print'
-import { buildCxCClienteReportHTML, buildInvoicePaymentsHTML } from '../reports/cxcClienteReport'
+
+// 👉 Usamos los NUEVOS builders tipo “excel”
+import {
+  buildCxCDocsSummaryHTML,
+  buildInvoicePaymentsHTML_Grid
+} from '../reports/cxcClienteDocsSimple'
 
 const fmt = n => (Number(n)||0).toFixed(2)
 const fmtDateTime = (d) => new Date(d).toLocaleString()
@@ -204,13 +209,12 @@ export default function CuentasPorCobrarCliente() {
 
   const clearFilters = () => { setBalance('all'); setFrom(''); setTo('') }
 
-  // Imprime RESUMEN POR DOCUMENTOS
+  // Imprime RESUMEN POR DOCUMENTOS (tipo excel)
   const onPrint = () => {
-    const html = buildCxCClienteReportHTML({
+    const html = buildCxCDocsSummaryHTML({
       company: COMPANY,
       client: { customerName: data.customerName, RUC: data.RUC },
-      items,
-      balance
+      items
     })
     printHTML(html)
   }
@@ -278,10 +282,10 @@ export default function CuentasPorCobrarCliente() {
 
       {msg && <div className="muted" style={{ marginTop:8 }}>{msg}</div>}
 
-      {/* Tabla: UNA FILA POR ENTREGA */}
+      {/* Tabla: UNA FILA POR ENTREGA (mostrando FACTURA) */}
       <div className="table" style={{ marginTop:14 }}>
         <div className="table__head" style={{ gridTemplateColumns:'1.2fr 2fr 1fr 1fr 1fr auto' }}>
-          <div>Entrega</div>
+          <div>Factura</div>
           <div>Documentos</div>
           <div>Fecha</div>
           <div>Total (S/)</div>
@@ -299,7 +303,7 @@ export default function CuentasPorCobrarCliente() {
 
           return (
             <div className="table__row" key={`${deliveryId}-${orderId}`} style={{ gridTemplateColumns:'1.2fr 2fr 1fr 1fr 1fr auto' }}>
-              <div>#{deliveryId ?? '—'}</div>
+              <div>{r.invoiceCode ?? '—'}</div>
 
               <div style={{ display:'flex', gap:6, flexWrap:'wrap' }}>
                 {r.invoiceCode
@@ -351,7 +355,7 @@ export default function CuentasPorCobrarCliente() {
                           const pp = await listPaymentsByDelivery(row.deliveryId).catch(()=>[])
                           if (Array.isArray(pp)) allPayments.push(...pp)
                         }
-                        const html = buildInvoicePaymentsHTML({
+                        const html = buildInvoicePaymentsHTML_Grid({
                           company: COMPANY,
                           client: { customerName: data.customerName, RUC: data.RUC },
                           invoiceCode: r.invoiceCode,
