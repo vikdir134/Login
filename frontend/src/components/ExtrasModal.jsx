@@ -1,62 +1,83 @@
-// frontend/src/components/ExtrasModal.jsx
-import { useEffect, useState } from 'react'
-import { createColor, createMaterial } from '../api/extras'
+import { useEffect, useState } from "react"
+import { createColor, createMaterial } from "../api/extras"
+
+/* shadcn */
+import {
+  Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription
+} from "@/components/ui/dialog"
+import { Button } from "@/components/ui/button"
+import { Input } from "@/components/ui/input"
+import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs"
+import { Label } from "@/components/ui/label"
 
 export default function ExtrasModal({ open, onClose }) {
-  const [tab, setTab] = useState('COLOR')
-  const [name, setName] = useState('')
-  const [msg, setMsg] = useState('')
+  const [tab, setTab] = useState("COLOR")
+  const [name, setName] = useState("")
+  const [msg, setMsg] = useState("")
   const [sending, setSending] = useState(false)
 
   useEffect(() => {
     if (!open) return
-    setTab('COLOR'); setName(''); setMsg('')
+    setTab("COLOR"); setName(""); setMsg(""); setSending(false)
   }, [open])
 
   const submit = async (e) => {
-    e.preventDefault(); setMsg(''); setSending(true)
+    e?.preventDefault?.()
+    setMsg("")
+    setSending(true)
     try {
-      if (!name.trim()) throw new Error('Nombre requerido')
-      if (tab === 'COLOR') {
+      if (!name.trim()) throw new Error("Nombre requerido")
+      if (tab === "COLOR") {
         await createColor(name.trim())
-        setMsg('✅ Color creado')
+        setMsg("✅ Color creado")
       } else {
         await createMaterial(name.trim())
-        setMsg('✅ Material creado')
+        setMsg("✅ Material creado")
       }
+      setName("")
     } catch (err) {
-      setMsg(err?.response?.data?.error || err.message || 'Error')
+      setMsg(err?.response?.data?.error || err.message || "Error")
     } finally {
       setSending(false)
     }
   }
 
-  if (!open) return null
   return (
-    <div className="modal modal--center">
-      <div className="modal__card">
-        <div className="modal__header">
-          <h4 style={{ margin:0 }}>Extras</h4>
-          <button className="btn-secondary" onClick={onClose}>Cerrar</button>
-        </div>
+    <Dialog open={open} onOpenChange={(v) => !v && onClose?.()}>
+      <DialogContent>
+        <DialogHeader>
+          <DialogTitle>Extras</DialogTitle>
+          <DialogDescription className="sr-only">
+            Crear colores o materiales auxiliares.
+          </DialogDescription>
+        </DialogHeader>
 
-        <div style={{ display:'flex', gap:6, marginBottom:8 }}>
-          <button className={tab==='COLOR'?'btn':'btn-secondary'} onClick={()=>setTab('COLOR')}>Agregar Color</button>
-          <button className={tab==='MATERIAL'?'btn':'btn-secondary'} onClick={()=>setTab('MATERIAL')}>Agregar Material</button>
-        </div>
+        <Tabs value={tab} onValueChange={setTab} className="w-full">
+          <TabsList className="grid grid-cols-2">
+            <TabsTrigger value="COLOR">Agregar Color</TabsTrigger>
+            <TabsTrigger value="MATERIAL">Agregar Material</TabsTrigger>
+          </TabsList>
 
-        <form onSubmit={submit} className="form-col" style={{ gap:12 }}>
-          <label className="form-field">
-            <span>Nombre</span>
-            <input value={name} onChange={e=>setName(e.target.value)} required />
-          </label>
+          <TabsContent value="COLOR" className="mt-3" />
+          <TabsContent value="MATERIAL" className="mt-3" />
+        </Tabs>
 
-          {msg && <div className={/✅/.test(msg)?'muted':'error'}>{msg}</div>}
-          <div className="form-actions" style={{ justifyContent:'flex-end' }}>
-            <button className="btn" disabled={sending}>{sending ? 'Guardando…' : 'Guardar'}</button>
+        <form onSubmit={submit} className="space-y-3">
+          <div className="space-y-1.5">
+            <Label>Nombre</Label>
+            <Input value={name} onChange={(e) => setName(e.target.value)} required />
+          </div>
+
+          {!!msg && (
+            <div className={/✅/.test(msg) ? "text-muted-foreground" : "text-destructive"}>{msg}</div>
+          )}
+
+          <div className="flex justify-end gap-2">
+            <Button variant="secondary" type="button" onClick={onClose}>Cerrar</Button>
+            <Button type="submit" disabled={sending}>{sending ? "Guardando…" : "Guardar"}</Button>
           </div>
         </form>
-      </div>
-    </div>
+      </DialogContent>
+    </Dialog>
   )
 }

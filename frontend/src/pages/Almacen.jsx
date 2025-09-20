@@ -1,55 +1,69 @@
 // frontend/src/pages/Almacen.jsx
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useState } from "react"
 import {
   fetchPrimaryStock,
   fetchFinishedSummary,
   fetchFinishedByProduct,
   fetchMerma,
-  deleteMerma
-} from '../api/stock'
-import api from '../api/axios'
-import { getUserFromToken, hasRole } from '../utils/auth'
-import AddPTModal from '../components/AddPTModal'
-import MoveMPModal from '../components/MoveMPModal'
-import AddMermaModal from '../components/AddMermaModal'
-import ExtrasModal from '../components/ExtrasModal'
-import RemoveMermaModal from '../components/RemoveMermaModal'
-import CreatePrimaryMaterialModal from '../components/CreatePrimaryMaterialModal'
-import CreateProductModal from '../components/CreateProductModal'
-import CompositionModal from '../components/CompositionModal'
+  deleteMerma,
+} from "@/api/stock"
+import api from "@/api/axios"
+import { getUserFromToken, hasRole } from "@/utils/auth"
 
-const fmtKg   = (v) => (Number.isFinite(Number(v)) ? Number(v).toFixed(2) : '0.00')
-const fmtDate = (s) => (s ? new Date(s).toLocaleString() : '—')
+/* Modales existentes (pueden estar implementados con Dialog por dentro) */
+import AddPTModal from "@/components/AddPTModal"
+import MoveMPModal from "@/components/MoveMPModal"
+import AddMermaModal from "@/components/AddMermaModal"
+import ExtrasModal from "@/components/ExtrasModal"
+import RemoveMermaModal from "@/components/RemoveMermaModal"
+import CreatePrimaryMaterialModal from "@/components/CreatePrimaryMaterialModal"
+import CreateProductModal from "@/components/CreateProductModal"
+import CompositionModal from "@/components/CompositionModal"
 
-const TABS = [
-  { key: 'ALMACEN',   label: 'Almacén (PT)' },
-  { key: 'RECEPCION', label: 'Recepción (MP)' },
-  { key: 'PRODUCCION',label: 'Producción (MP)' },
-  { key: 'MERMA',     label: 'Merma' }
-]
+/* shadcn UI */
+import { Card, CardHeader, CardTitle, CardContent } from "@/components/ui/card"
+import { Button } from "@/components/ui/button"
+import { Input } from "@/components/ui/input"
+import {
+  Table, TableHeader, TableRow, TableHead, TableBody, TableCell
+} from "@/components/ui/table"
+import {
+  Pagination, PaginationContent, PaginationItem, PaginationNext, PaginationPrevious, PaginationLink
+} from "@/components/ui/pagination"
+import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs"
+import {
+  Dialog, DialogContent, DialogHeader, DialogTitle
+} from "@/components/ui/dialog"
+import {
+  Command, CommandInput, CommandList, CommandEmpty, CommandGroup, CommandItem
+} from "@/components/ui/command"
+import { ScrollArea } from "@/components/ui/scroll-area"
 
-/** Modal para elegir producto SIN composición (usa endpoint dedicado) */
-function PickProductForCompModal({ open, onClose, onPicked }) {
-  const [loading, setLoading] = useState(true)
+const fmtKg   = (v) => (Number.isFinite(Number(v)) ? Number(v).toFixed(2) : "0.00")
+const fmtDate = (s) => (s ? new Date(s).toLocaleString() : "—")
+
+/* ----- Dialog: elegir producto SIN composición (buscable) ----- */
+function PickProductForCompDialog({ open, onOpenChange, onPicked }) {
+  const [loading, setLoading] = useState(false)
   const [items, setItems] = useState([])
-  const [q, setQ] = useState('')
-  const [msg, setMsg] = useState('')
+  const [q, setQ] = useState("")
+  const [msg, setMsg] = useState("")
 
   useEffect(() => {
     if (!open) return
     let alive = true
-    setLoading(true); setMsg('')
+    setLoading(true); setMsg("")
     ;(async () => {
       try {
-        const r = await api.get('/api/products/without-composition')
+        const r = await api.get("/api/products/without-composition")
         if (!alive) return
         const rows = Array.isArray(r.data) ? r.data : []
         setItems(rows)
-        if (rows.length === 0) setMsg('Todos los productos tienen composición.')
+        if (rows.length === 0) setMsg("Todos los productos tienen composición.")
       } catch (e) {
         if (!alive) return
         setItems([])
-        setMsg(e.response?.data?.error || 'No se pudo obtener la lista de productos sin composición')
+        setMsg(e.response?.data?.error || "No se pudo obtener la lista")
       } finally {
         if (alive) setLoading(false)
       }
@@ -61,86 +75,78 @@ function PickProductForCompModal({ open, onClose, onPicked }) {
     const term = q.trim().toLowerCase()
     if (!term) return items
     return items.filter(p =>
-      String(p.name || p.DESCRIPCION || '').toLowerCase().includes(term)
+      String(p.name || p.DESCRIPCION || "").toLowerCase().includes(term)
     )
   }, [items, q])
 
-  if (!open) return null
   return (
-    <div className="modal modal--center">
-      <div className="modal__card" style={{ minWidth: 520 }}>
-        <div className="modal__header">
-          <h4 style={{ margin:0 }}>Elegir producto (sin composición)</h4>
-          <button className="btn-secondary" onClick={onClose}>Cerrar</button>
-        </div>
+    <Dialog open={open} onOpenChange={(v) => { setQ(""); onOpenChange?.(v) }}>
+      <DialogContent className="sm:max-w-xl">
+        <DialogHeader>
+          <DialogTitle>Elegir producto (sin composición)</DialogTitle>
+        </DialogHeader>
 
-        <div className="form-col" style={{ gap: 10 }}>
-          <div style={{ display:'grid', gridTemplateColumns:'1fr', gap:8 }}>
-            <input
-              placeholder="Buscar producto…"
-              value={q}
-              onChange={e=>setQ(e.target.value)}
-            />
-          </div>
-
-          {loading ? (
-            <div className="muted">Cargando…</div>
-          ) : (
-            <>
-              {msg && <div className="muted">{msg}</div>}
-              <div className="table" style={{ maxHeight: 360, overflow:'auto' }}>
-                <div className="table__head" style={{ gridTemplateColumns:'2fr auto' }}>
-                  <div>Producto</div>
-                  <div>Acciones</div>
-                </div>
-                {filtered.map(p => {
-                  const id = p.id || p.ID_PRODUCT
-                  const name = p.name || p.DESCRIPCION || `Producto #${id}`
-                  return (
-                    <div key={id} className="table__row" style={{ gridTemplateColumns:'2fr auto' }}>
-                      <div>{name}</div>
-                      <div>
-                        <button className="btn" onClick={()=>onPicked?.(id)}>
-                          Elegir
-                        </button>
-                      </div>
-                    </div>
-                  )
-                })}
-                {filtered.length === 0 && (
-                  <div className="muted">Sin resultados</div>
-                )}
-              </div>
-            </>
-          )}
-        </div>
-      </div>
-    </div>
+        <Command shouldFilter={false}>
+          <CommandInput
+            placeholder="Buscar producto…"
+            value={q}
+            onValueChange={setQ}
+          />
+          <CommandList>
+            {loading && <div className="p-3 text-sm text-muted-foreground">Cargando…</div>}
+            {!loading && (
+              <>
+                <CommandEmpty>Sin resultados</CommandEmpty>
+                {msg && <div className="px-3 py-2 text-sm text-muted-foreground">{msg}</div>}
+                <CommandGroup heading="Productos">
+                  <ScrollArea className="max-h-72">
+                    {filtered.map((p) => {
+                      const id = p.id || p.ID_PRODUCT
+                      const name = p.name || p.DESCRIPCION || `Producto #${id}`
+                      return (
+                        <CommandItem
+                          key={id}
+                          onSelect={() => onPicked?.(id)}
+                          className="cursor-pointer"
+                        >
+                          {name}
+                        </CommandItem>
+                      )
+                    })}
+                  </ScrollArea>
+                </CommandGroup>
+              </>
+            )}
+          </CommandList>
+        </Command>
+      </DialogContent>
+    </Dialog>
   )
 }
 
+/* ----- Página ----- */
 export default function Almacen() {
   const me = getUserFromToken()
-  const puedePT      = hasRole(me,'JEFE') || hasRole(me,'ADMINISTRADOR') || hasRole(me,'PRODUCCION')
-  const puedeMoverMP = hasRole(me,'JEFE') || hasRole(me,'ADMINISTRADOR') || hasRole(me,'ALMACENERO') || hasRole(me,'PRODUCCION')
-  const puedeMerma   = hasRole(me,'JEFE') || hasRole(me,'ADMINISTRADOR') || hasRole(me,'ALMACENERO') || hasRole(me,'PRODUCCION')
+  const puedePT      = hasRole(me,"JEFE") || hasRole(me,"ADMINISTRADOR") || hasRole(me,"PRODUCCION")
+  const puedeMoverMP = hasRole(me,"JEFE") || hasRole(me,"ADMINISTRADOR") || hasRole(me,"ALMACENERO") || hasRole(me,"PRODUCCION")
+  const puedeMerma   = hasRole(me,"JEFE") || hasRole(me,"ADMINISTRADOR") || hasRole(me,"ALMACENERO") || hasRole(me,"PRODUCCION")
 
-  const [tab, setTab] = useState('ALMACEN')
-  const [q, setQ] = useState('')
+  const [tab, setTab] = useState("ALMACEN")
+  const [q, setQ] = useState("")
   const [page, setPage] = useState(0)
   const pageSize = 30
 
   const [rows, setRows] = useState([])
   const [total, setTotal] = useState(0)
   const [loading, setLoading] = useState(true)
-  const [msg, setMsg] = useState('')
+  const [msg, setMsg] = useState("")
 
   // PT expand
   const [expandedPT, setExpandedPT] = useState(null)
   const [ptDetailLoading, setPtDetailLoading] = useState(false)
   const [ptDetailRows, setPtDetailRows] = useState([])
 
-  // modales
+  // dialogs (externos)
   const [openPT, setOpenPT] = useState(false)
   const [openMove, setOpenMove] = useState(false)
   const [openMerma, setOpenMerma] = useState(false)
@@ -156,16 +162,16 @@ export default function Almacen() {
   const [openPickComp, setOpenPickComp] = useState(false)
 
   const PT_ALMACEN_ID = 18
-  const defaultFromForMove = tab === 'RECEPCION' ? 'RECEPCION' : 'PRODUCCION'
+  const defaultFromForMove = tab === "RECEPCION" ? "RECEPCION" : "PRODUCCION"
 
   const load = async () => {
-    setLoading(true); setMsg('')
+    setLoading(true); setMsg("")
     try {
-      if (tab === 'ALMACEN') {
+      if (tab === "ALMACEN") {
         const data = await fetchFinishedSummary({ q, limit: pageSize, offset: page * pageSize })
         setRows(Array.isArray(data?.items) ? data.items : [])
         setTotal(Number(data?.total || 0))
-      } else if (tab === 'MERMA') {
+      } else if (tab === "MERMA") {
         const data = await fetchMerma({ q, limit: pageSize, offset: page * pageSize })
         setRows(Array.isArray(data?.items) ? data.items : [])
         setTotal(Number(data?.total || 0))
@@ -176,7 +182,7 @@ export default function Almacen() {
       }
     } catch (e) {
       console.error(e)
-      setMsg('Error cargando stock')
+      setMsg("Error cargando stock")
       setRows([]); setTotal(0)
     } finally {
       setLoading(false)
@@ -189,20 +195,21 @@ export default function Almacen() {
   // cargar por tab/página
   useEffect(() => { load() /* eslint-disable-line */ }, [tab, page])
 
-  // 🔎 Buscador REACTIVO con debounce (300ms)
+  // Buscador reactivo (350ms)
   useEffect(() => {
     const t = setTimeout(() => {
-      setPage(0)              // volver al inicio
-      setExpandedPT(null)     // cerrar expandibles
-      setPtDetailRows([])     // limpiar
+      setPage(0)
+      setExpandedPT(null)
+      setPtDetailRows([])
       load()
-    }, 300)
+    }, 350)
     return () => clearTimeout(t)
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [q])
 
   const canPrev = page > 0
-  const canNext = (page + 1) * pageSize < total
+  const totalPages = Math.max(1, Math.ceil((total || 0) / pageSize))
+  const canNext = page + 1 < totalPages
 
   const togglePTDetail = async (productId) => {
     if (expandedPT === productId) {
@@ -224,244 +231,262 @@ export default function Almacen() {
     }
   }
 
-  const onDeleteMerma = async (row) => {
-    const id = row.id || row.ID || row.rowId || row.ID_STOCK_ZONE
-    if (!id) { setMsg('No se puede borrar: faltan datos'); return }
-    if (!confirm('¿Eliminar este registro de merma?')) return
-    try {
-      await deleteMerma(id)
-      setMsg('✅ Merma eliminada')
-      load()
-    } catch (e) {
-      console.error(e)
-      setMsg(e.response?.data?.error || 'Error eliminando merma')
-    }
-  }
-
   return (
-    <section className="card">
-      <div className="topbar" style={{ gap: 8, flexWrap:'wrap' }}>
-        <h3 style={{ margin: 0 }}>Almacén</h3>
+    <Card className="w-full">
+      <CardHeader className="flex items-center justify-between space-y-0">
+        <CardTitle className="text-xl">Almacén</CardTitle>
+      </CardHeader>
 
-        <div style={{ display:'flex', gap: 6 }}>
-          {TABS.map(t => (
-            <button
-              key={t.key}
-              className={tab === t.key ? 'btn' : 'btn-secondary'}
-              onClick={() => setTab(t.key)}
-            >
-              {t.label}
-            </button>
-          ))}
+      <CardContent className="space-y-4">
+        {/* Tabs + acciones */}
+        <div className="flex flex-col gap-3">
+          <div className="flex flex-wrap items-center gap-2">
+            <Tabs value={tab} onValueChange={setTab}>
+              <TabsList>
+                <TabsTrigger value="ALMACEN">Almacén (PT)</TabsTrigger>
+                <TabsTrigger value="RECEPCION">Recepción (MP)</TabsTrigger>
+                <TabsTrigger value="PRODUCCION">Producción (MP)</TabsTrigger>
+                <TabsTrigger value="MERMA">Merma</TabsTrigger>
+              </TabsList>
+            </Tabs>
+
+            <div className="flex-1" />
+
+            {tab === "ALMACEN" && (
+              <div className="flex gap-2">
+                {puedePT && <Button onClick={() => setOpenPT(true)}>+ Producto Terminado</Button>}
+                <Button variant="secondary" onClick={() => setOpenCreateMP(true)}>Crear MP</Button>
+                <Button variant="secondary" onClick={() => setOpenCreatePT(true)}>Crear PT</Button>
+                <Button
+                  variant="secondary"
+                  title="Definir composición para productos que aún no la tienen"
+                  onClick={() => setOpenPickComp(true)}
+                >
+                  Composición
+                </Button>
+                <Button variant="secondary" onClick={() => setOpenExtras(true)}>Extras</Button>
+              </div>
+            )}
+
+            {(tab === "RECEPCION" || tab === "PRODUCCION") && puedeMoverMP && (
+              <Button variant="secondary" onClick={() => setOpenMove(true)}>Mover MP</Button>
+            )}
+
+            {tab === "MERMA" && puedeMerma && (
+              <Button variant="secondary" onClick={() => setOpenMerma(true)}>+ Merma</Button>
+            )}
+          </div>
+
+          {/* Buscador */}
+          <Input
+            placeholder="Buscar…"
+            value={q}
+            onChange={(e) => setQ(e.target.value)}
+          />
         </div>
 
-        <div style={{ flex: 1 }} />
+        {msg && <div className="text-sm text-muted-foreground">{msg}</div>}
 
-        {/* Acciones contextuales */}
-        {tab === 'ALMACEN' && (
-          <>
-            {puedePT && <button className="btn" onClick={()=>setOpenPT(true)}>+ Producto Terminado</button>}
-            <button className="btn-secondary" onClick={()=>setOpenCreateMP(true)}>Crear MP</button>
-            <button className="btn-secondary" onClick={()=>setOpenCreatePT(true)}>Crear PT</button>
-            <button
-              className="btn-secondary"
-              onClick={()=>setOpenPickComp(true)}
-              title="Definir composición para productos que aún no la tienen"
-            >
-              Composición
-            </button>
-            <button className="btn-secondary" onClick={()=>setOpenExtras(true)}>Extras</button>
-          </>
-        )}
-
-        {(tab === 'RECEPCION' || tab === 'PRODUCCION') && puedeMoverMP && (
-          <button className="btn-secondary" onClick={()=>setOpenMove(true)}>Mover MP</button>
-        )}
-
-        {tab === 'MERMA' && puedeMerma && (
-          <button className="btn-secondary" onClick={()=>setOpenMerma(true)}>+ Merma</button>
-        )}
-      </div>
-
-      {/* Buscador ESTANDAR + REACTIVO */}
-      <div style={{ display:'grid', gridTemplateColumns:'1fr', gap:8 }}>
-        <input
-          placeholder="Buscar…"
-          value={q}
-          onChange={e=>setQ(e.target.value)}
-        />
-      </div>
-
-      {msg && <div className="muted" style={{ marginTop:8 }}>{msg}</div>}
-
-      {/* Tabla */}
-      <div className="table" style={{ marginTop: 12 }}>
-        {/* ====== ALMACÉN (PT) — Resumen + expandible ====== */}
-        {tab === 'ALMACEN' && (
-          <>
-            <div className="table__head" style={{ gridTemplateColumns:'2fr 1fr auto' }}>
-              <div>Producto</div>
-              <div>Total (kg)</div>
-              <div>Acciones</div>
-            </div>
-
-            {!loading && rows.map((r, i) => {
-              const pid = r.productId
-              const open = expandedPT === pid
-              return (
-                <div key={`${pid}-${i}`} style={{ display:'contents' }}>
-                  <div className="table__row" style={{ gridTemplateColumns:'2fr 1fr auto' }}>
-                    <div>{r.productName}</div>
-                    <div>{fmtKg(r.stockKg)}</div>
-                    <div>
-                      <button className="btn-secondary" onClick={() => togglePTDetail(pid)}>
-                        {open ? 'Ocultar' : 'Ver'}
-                      </button>
-                    </div>
-                  </div>
-
-                  {open && (
-                    <div className="table__row" style={{ gridColumn:'1 / -1', background:'var(--bg-soft)' }}>
-                      {ptDetailLoading ? (
-                        <div className="muted">Cargando presentaciones…</div>
-                      ) : (
-                        <div style={{ width:'100%' }}>
-                          <div className="muted" style={{ marginBottom:8 }}>
-                            Presentaciones de <strong>{r.productName}</strong>
+        {/* === Contenido por tab === */}
+        <Tabs value={tab}>
+          {/* ---- ALMACÉN (PT) ---- */}
+          <TabsContent value="ALMACEN" className="space-y-3">
+            <div className="rounded-md border">
+              <Table>
+                <TableHeader>
+                  <TableRow>
+                    <TableHead>Producto</TableHead>
+                    <TableHead>Total (kg)</TableHead>
+                    <TableHead className="text-right">Acciones</TableHead>
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  {!loading && rows.map((r, i) => {
+                    const pid = r.productId
+                    const open = expandedPT === pid
+                    return (
+                      <FragmentRow
+                        key={`${pid}-${i}`}
+                        main={
+                          <>
+                            <TableCell>{r.productName}</TableCell>
+                            <TableCell>{fmtKg(r.stockKg)}</TableCell>
+                            <TableCell className="text-right">
+                              <Button variant="secondary" size="sm" onClick={() => togglePTDetail(pid)}>
+                                {open ? "Ocultar" : "Ver"}
+                              </Button>
+                            </TableCell>
+                          </>
+                        }
+                        expanded={open}
+                        colSpan={3}
+                      >
+                        {ptDetailLoading ? (
+                          <div className="text-sm text-muted-foreground">Cargando presentaciones…</div>
+                        ) : (
+                          <div className="rounded-md border">
+                            <Table>
+                              <TableHeader>
+                                <TableRow>
+                                  <TableHead>Presentación</TableHead>
+                                  <TableHead>Stock (kg)</TableHead>
+                                </TableRow>
+                              </TableHeader>
+                              <TableBody>
+                                {ptDetailRows.map((p, idx) => (
+                                  <TableRow key={`${pid}-${(p.presentacion ?? "NULL")}-${idx}`}>
+                                    <TableCell>{p.presentacion ?? "—"} Kg</TableCell>
+                                    <TableCell>{fmtKg(p.stockKg)} Kg</TableCell>
+                                  </TableRow>
+                                ))}
+                                {ptDetailRows.length === 0 && (
+                                  <TableRow>
+                                    <TableCell colSpan={2} className="text-muted-foreground">
+                                      Sin presentaciones con stock
+                                    </TableCell>
+                                  </TableRow>
+                                )}
+                              </TableBody>
+                            </Table>
                           </div>
-
-                          <div className="table">
-                            <div className="table__head" style={{ gridTemplateColumns:'2fr 1fr' }}>
-                              <div>Presentación</div>
-                              <div>Stock (kg)</div>
-                            </div>
-
-                             {ptDetailRows.map((p, idx) => (
-                              <div
-                                className="table__row"
-                                key={`${pid}-${(p.presentacion ?? 'NULL')}-${idx}`}
-                                style={{ gridTemplateColumns:'2fr 1fr' }}
-                              >
-                                <div>{p.presentacion ?? '—'} Kg</div>
-                                <div>{fmtKg(p.stockKg)} Kg</div>
-                              </div>
-                            ))}
-
-                            {ptDetailRows.length === 0 && (
-                              <div className="muted">Sin presentaciones con stock</div>
-                            )}
-                          </div>
-                        </div>
-                      )}
-                    </div>
+                        )}
+                      </FragmentRow>
+                    )
+                  })}
+                  {loading && (
+                    <TableRow>
+                      <TableCell colSpan={3} className="text-muted-foreground">Cargando…</TableCell>
+                    </TableRow>
                   )}
-
-                </div>
-              )
-            })}
-          </>
-        )}
-
-        {/* ====== MP (Recepción / Producción) ====== */}
-        {(tab === 'RECEPCION' || tab === 'PRODUCCION') && (
-          <>
-            <div className="table__head" style={{ gridTemplateColumns:'2fr 1.2fr 1fr 1fr' }}>
-              <div>Materia prima</div>
-              <div>Color / Denier</div>
-              <div>Stock (kg)</div>
-              <div>Última act.</div>
+                  {!loading && rows.length === 0 && (
+                    <TableRow>
+                      <TableCell colSpan={3} className="text-muted-foreground">Sin resultados</TableCell>
+                    </TableRow>
+                  )}
+                </TableBody>
+              </Table>
             </div>
-            {!loading && rows.map((r, i) => (
-              <div className="table__row" key={`${r.primaterId}-${i}`} style={{ gridTemplateColumns:'2fr 1.2fr 1fr 1fr' }}>
-                <div>
-                  <div>{[r.material, r.descripcion].filter(Boolean).join(' · ')}</div>
-                </div>
-                <div>{(r.color || '—') + ' / ' + (r.denier != null ? r.denier : 'Sin denier')}</div>
-                <div>{fmtKg(r.stockKg)}</div>
-                <div>{fmtDate(r.lastUpdate)}</div>
-              </div>
-            ))}
-          </>
-        )}
+          </TabsContent>
 
-        {/* ====== MERMA ====== */}
-        {tab === 'MERMA' && (
-          <>
-            <div className="table__head" style={{ gridTemplateColumns:'1fr 2fr 1fr 1fr auto' }}>
-              <div>Tipo</div>
-              <div>Ítem</div>
-              <div>Merma (kg)</div>
-              <div>Última act.</div>
-              <div>Acciones</div>
+          {/* ---- MP (RECEPCION / PRODUCCION) ---- */}
+          <TabsContent value="RECEPCION" className="space-y-3">
+            <MPTable loading={loading} rows={rows} />
+          </TabsContent>
+          <TabsContent value="PRODUCCION" className="space-y-3">
+            <MPTable loading={loading} rows={rows} />
+          </TabsContent>
+
+          {/* ---- MERMA ---- */}
+          <TabsContent value="MERMA" className="space-y-3">
+            <div className="rounded-md border">
+              <Table>
+                <TableHeader>
+                  <TableRow>
+                    <TableHead>Tipo</TableHead>
+                    <TableHead>Ítem</TableHead>
+                    <TableHead>Merma (kg)</TableHead>
+                    <TableHead>Última act.</TableHead>
+                    <TableHead className="text-right">Acciones</TableHead>
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  {!loading && rows.map((r, i) => (
+                    <TableRow key={`${r.id || r.rowId || i}`}>
+                      <TableCell>{r.type || r.TIPO || "—"}</TableCell>
+                      <TableCell>{r.name || r.itemName || r.DESCRIPCION || "—"}</TableCell>
+                      <TableCell>{fmtKg(r.stockKg || r.peso || r.MERMA)}</TableCell>
+                      <TableCell>{fmtDate(r.lastUpdate)}</TableCell>
+                      <TableCell className="text-right">
+                        <Button
+                          variant="secondary"
+                          size="sm"
+                          onClick={() => { setRowToRemove(r); setOpenRemoveMerma(true) }}
+                        >
+                          Eliminar
+                        </Button>
+                      </TableCell>
+                    </TableRow>
+                  ))}
+                  {loading && (
+                    <TableRow>
+                      <TableCell colSpan={5} className="text-muted-foreground">Cargando…</TableCell>
+                    </TableRow>
+                  )}
+                  {!loading && rows.length === 0 && (
+                    <TableRow>
+                      <TableCell colSpan={5} className="text-muted-foreground">Sin resultados</TableCell>
+                    </TableRow>
+                  )}
+                </TableBody>
+              </Table>
             </div>
-            {!loading && rows.map((r, i) => (
-              <div className="table__row" key={`${r.id || r.rowId || i}`} style={{ gridTemplateColumns:'1fr 2fr 1fr 1fr auto' }}>
-                <div>{r.type || r.TIPO || '—'}</div>
-                <div>{r.name || r.itemName || r.DESCRIPCION || '—'}</div>
-                <div>{fmtKg(r.stockKg || r.peso || r.MERMA)}</div>
-                <div>{fmtDate(r.lastUpdate)}</div>
-                <div>
-                  <button
-                    className="btn-secondary"
-                    onClick={() => { setRowToRemove(r); setOpenRemoveMerma(true) }}
-                  >
-                    Eliminar
-                  </button>
-                </div>
-              </div>
-            ))}
-          </>
-        )}
+          </TabsContent>
+        </Tabs>
 
-        {loading && <div className="muted">Cargando…</div>}
-        {!loading && rows.length === 0 && <div className="muted">Sin resultados</div>}
-      </div>
+        {/* Paginación */}
+        <div className="flex items-center justify-between">
+          <div className="text-sm text-muted-foreground">Página {page + 1} de {totalPages}</div>
+          <Pagination>
+            <PaginationContent>
+              <PaginationItem>
+                <PaginationPrevious onClick={() => canPrev && setPage((p) => p - 1)} aria-disabled={!canPrev}/>
+              </PaginationItem>
+              {Array.from({ length: totalPages })
+                .slice(Math.max(0, page - 1), Math.min(totalPages, page + 2))
+                .map((_, idx) => {
+                  const p = Math.max(0, page - 1) + idx
+                  return (
+                    <PaginationItem key={p}>
+                      <PaginationLink isActive={p === page} onClick={() => setPage(p)}>
+                        {p + 1}
+                      </PaginationLink>
+                    </PaginationItem>
+                  )
+                })}
+              <PaginationItem>
+                <PaginationNext onClick={() => canNext && setPage((p) => p + 1)} aria-disabled={!canNext}/>
+              </PaginationItem>
+            </PaginationContent>
+          </Pagination>
+        </div>
+      </CardContent>
 
-      {/* Paginación */}
-      <div style={{ display:'flex', gap:8, marginTop:10, alignItems:'center' }}>
-        <button className="btn-secondary" disabled={!canPrev} onClick={()=>setPage(p=>Math.max(0, p-1))}>Anterior</button>
-        <div className="muted">Página {page+1} de {Math.max(1, Math.ceil((total||0)/pageSize))}</div>
-        <button className="btn-secondary" disabled={!canNext} onClick={()=>setPage(p=>p+1)}>Siguiente</button>
-      </div>
-
-      {/* Modales */}
+      {/* ==== Dialogs ==== */}
       <AddPTModal
         open={openPT}
-        onClose={()=>setOpenPT(false)}
+        onClose={() => setOpenPT(false)}
         defaultZoneId={PT_ALMACEN_ID}
-        onDone={()=>{ setExpandedPT(null); setPtDetailRows([]); load() }}
+        onDone={() => { setExpandedPT(null); setPtDetailRows([]); load() }}
       />
       <MoveMPModal
         open={openMove}
-        onClose={()=>setOpenMove(false)}
+        onClose={() => setOpenMove(false)}
         onDone={load}
         defaultFrom={defaultFromForMove}
       />
-      <AddMermaModal open={openMerma} onClose={()=>setOpenMerma(false)} onDone={load} />
-      <ExtrasModal open={openExtras} onClose={()=>setOpenExtras(false)} />
+      <AddMermaModal open={openMerma} onClose={() => setOpenMerma(false)} onDone={load} />
+      <ExtrasModal open={openExtras} onClose={() => setOpenExtras(false)} />
       <RemoveMermaModal
         open={openRemoveMerma}
-        onClose={()=>{ setOpenRemoveMerma(false); setRowToRemove(null) }}
+        onClose={() => { setOpenRemoveMerma(false); setRowToRemove(null) }}
         row={rowToRemove}
         onDone={load}
       />
-
       <CreatePrimaryMaterialModal
         open={openCreateMP}
-        onClose={()=>setOpenCreateMP(false)}
-        onDone={()=>{ if (tab !== 'ALMACEN') load() }}
+        onClose={() => setOpenCreateMP(false)}
+        onDone={() => { if (tab !== "ALMACEN") load() }}
       />
-
       <CreateProductModal
         open={openCreatePT}
-        onClose={()=>setOpenCreatePT(false)}
-        onDone={()=>{ /* opcional: recargar productos */ }}
+        onClose={() => setOpenCreatePT(false)}
+        onDone={() => { /* opcional */ }}
       />
 
-      {/* Selector de producto SIN composición */}
-      <PickProductForCompModal
+      {/* Elegir producto (sin composición) con buscador */}
+      <PickProductForCompDialog
         open={openPickComp}
-        onClose={()=>setOpenPickComp(false)}
+        onOpenChange={setOpenPickComp}
         onPicked={(pid) => {
           setOpenPickComp(false)
           setProductForComp(pid)
@@ -472,10 +497,64 @@ export default function Almacen() {
       {/* Editor de Composición */}
       <CompositionModal
         open={openComp}
-        onClose={()=>setOpenComp(false)}
+        onClose={() => setOpenComp(false)}
         productId={productForComp}
-        onDone={()=>{ /* ok */ }}
+        onDone={() => { /* ok */ }}
       />
-    </section>
+    </Card>
+  )
+}
+
+/* ---- Subtable MP (Recepción / Producción) ---- */
+function MPTable({ loading, rows }) {
+  return (
+    <div className="rounded-md border">
+      <Table>
+        <TableHeader>
+          <TableRow>
+            <TableHead>Materia prima</TableHead>
+            <TableHead>Color / Denier</TableHead>
+            <TableHead>Stock (kg)</TableHead>
+            <TableHead>Última act.</TableHead>
+          </TableRow>
+        </TableHeader>
+        <TableBody>
+          {!loading && rows.map((r, i) => (
+            <TableRow key={`${r.primaterId || r.id || i}`}>
+              <TableCell>{[r.material, r.descripcion].filter(Boolean).join(" · ")}</TableCell>
+              <TableCell>{(r.color || "—") + " / " + (r.denier != null ? r.denier : "Sin denier")}</TableCell>
+              <TableCell>{fmtKg(r.stockKg)}</TableCell>
+              <TableCell>{fmtDate(r.lastUpdate)}</TableCell>
+            </TableRow>
+          ))}
+          {loading && (
+            <TableRow>
+              <TableCell colSpan={4} className="text-muted-foreground">Cargando…</TableCell>
+            </TableRow>
+          )}
+          {!loading && rows.length === 0 && (
+            <TableRow>
+              <TableCell colSpan={4} className="text-muted-foreground">Sin resultados</TableCell>
+            </TableRow>
+          )}
+        </TableBody>
+      </Table>
+    </div>
+  )
+}
+
+/* ---- Row con sección expandible (para PT) ---- */
+function FragmentRow({ main, expanded, colSpan, children }) {
+  return (
+    <>
+      <TableRow>{main}</TableRow>
+      {expanded && (
+        <TableRow>
+          <TableCell colSpan={colSpan}>
+            {children}
+          </TableCell>
+        </TableRow>
+      )}
+    </>
   )
 }

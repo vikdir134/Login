@@ -1,199 +1,207 @@
-import { useEffect, useMemo, useState } from 'react'
-import { createCustomer } from '../api/customers'
+// src/components/AddCustomerModal.jsx
+import { useEffect } from "react"
+import { useForm } from "react-hook-form"
+import { z } from "zod"
+import { zodResolver } from "@hookform/resolvers/zod"
+import { toast } from "sonner"
+
+import { createCustomer } from "../api/customers"
+
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+  DialogDescription,
+  DialogFooter,
+} from "@/components/ui/dialog"
+import { Button } from "@/components/ui/button"
+import { Input } from "@/components/ui/input"
+import { Label } from "@/components/ui/label"
+import { Checkbox } from "@/components/ui/checkbox"
+import {
+  Form,
+  FormField,
+  FormItem,
+  FormLabel,
+  FormControl,
+  FormMessage,
+} from "@/components/ui/form"
+
+const schema = z.object({
+  RUC: z.string()
+    .trim()
+    .min(8, "Mínimo 8 dígitos")
+    .max(11, "Máximo 11 dígitos"),
+  razonSocial: z.string()
+    .trim()
+    .min(2, "Mínimo 2 caracteres")
+    .max(60, "Máximo 60 caracteres"),
+  email: z.string().trim().email("Correo no válido").max(100, "Máximo 100").optional().or(z.literal("")),
+  phone: z.string().trim().regex(/^[0-9+\-\s()]{0,20}$/, "Teléfono no válido").optional().or(z.literal("")),
+  address: z.string().trim().max(150, "Máximo 150 caracteres").optional().or(z.literal("")),
+  activo: z.boolean().default(true),
+})
 
 export default function AddCustomerModal({ open, onClose, onSuccess }) {
-  const [saving, setSaving] = useState(false)
-  const [apiError, setApiError] = useState('')
-
-  const [form, setForm] = useState({
-    RUC: '',
-    razonSocial: '',
-    phone: '',
-    email: '',
-    address: '',
-    activo: true,
+  const form = useForm({
+    resolver: zodResolver(schema),
+    defaultValues: {
+      RUC: "",
+      razonSocial: "",
+      email: "",
+      phone: "",
+      address: "",
+      activo: true,
+    },
   })
 
+  // Reset al abrir
   useEffect(() => {
-    if (open) {
-      setApiError('')
-      setForm({
-        RUC: '',
-        razonSocial: '',
-        phone: '',
-        email: '',
-        address: '',
-        activo: true,
-      })
-    }
+    if (open) form.reset({
+      RUC: "",
+      razonSocial: "",
+      email: "",
+      phone: "",
+      address: "",
+      activo: true,
+    })
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open])
 
-  const setField = (patch) => setForm(f => ({ ...f, ...patch }))
-
-  // Validación (solo al enviar, pero calculamos aquí para decidir bloqueo del botón)
-  const errors = useMemo(() => {
-    const e = {}
-    // RUC requerido 8..11 (ajusta si tu backend permite 11 exacto)
-    const r = (form.RUC || '').trim()
-    if (!r) e.RUC = 'RUC es obligatorio'
-    else if (r.length < 8 || r.length > 11) e.RUC = 'RUC entre 8 y 11 dígitos'
-
-    // Razón social requerida 2..60 (según tu schema)
-    const rs = (form.razonSocial || '').trim()
-    if (!rs) e.razonSocial = 'Razón social es obligatoria'
-    else if (rs.length < 2) e.razonSocial = 'Mínimo 2 caracteres'
-    else if (rs.length > 60) e.razonSocial = 'Máximo 60 caracteres'
-
-    // Email opcional
-    const em = (form.email || '').trim()
-    if (em) {
-      const ok = /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(em)
-      if (!ok) e.email = 'Correo no válido'
-      if (em.length > 100) e.email = 'Máximo 100 caracteres'
-    }
-    // Teléfono opcional
-    const ph = (form.phone || '').trim()
-    if (ph) {
-      const ok = /^[0-9+\-\s()]{6,20}$/.test(ph)
-      if (!ok) e.phone = 'Teléfono no válido'
-    }
-    // Dirección opcional
-    if (form.address && form.address.length > 150) e.address = 'Máximo 150 caracteres'
-
-    return e
-  }, [form])
-
-  const canSubmit = useMemo(() => Object.keys(errors).length === 0 && !saving, [errors, saving])
-
-  const submit = async (e) => {
-    e.preventDefault()
-    setApiError('') // limpiamos
-    // No pintamos en rojo; si hay error mostramos mensaje general
-    if (!canSubmit) {
-      setApiError('Revisa los datos obligatorios antes de registrar.')
-      return
-    }
-    setSaving(true)
+  const onSubmit = async (values) => {
     try {
-      // Backend: CUSTOMERS => { RUC, RAZON_SOCIAL, ACTIVO } [+ campos extra si tu controlador los soporta]
       await createCustomer({
-        RUC: form.RUC.trim(),
-        razonSocial: form.razonSocial.trim(),
-        phone: form.phone?.trim() || null,
-        email: form.email?.trim() || null,
-        address: form.address?.trim() || null,
-        activo: !!form.activo
+        RUC: values.RUC.trim(),
+        razonSocial: values.razonSocial.trim(),
+        phone: values.phone?.trim() || null,
+        email: values.email?.trim() || null,
+        address: values.address?.trim() || null,
+        activo: !!values.activo,
       })
+      toast.success("Cliente registrado")
       onSuccess?.()
       onClose?.()
     } catch (err) {
       const msg =
-        err.response?.data?.error ||
-        (err.response?.status === 409 ? 'RUC o Razón social ya registrados' : null) ||
-        err.message ||
-        'Error creando cliente'
-      setApiError(msg)
-    } finally {
-      setSaving(false)
+        err?.response?.data?.error ||
+        (err?.response?.status === 409 ? "RUC o Razón social ya registrados" : null) ||
+        err?.message ||
+        "Error creando cliente"
+      toast.error("No se pudo registrar", { description: msg })
     }
   }
 
-  if (!open) return null
-
   return (
-    <div
-      role="dialog"
-      aria-modal="true"
-      style={{
-        position: 'fixed', inset: 0, background: 'rgba(0,0,0,.35)',
-        display: 'grid', placeItems: 'center', zIndex: 1000
-      }}
-      onClick={(e) => { if (e.target === e.currentTarget) onClose?.() }}
-    >
-      <div className="card" style={{ width: '100%', maxWidth: 600 }}>
-        <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center', gap:8 }}>
-          <h4 style={{ margin:0 }}>Nuevo cliente</h4>
-          <button type="button" className="btn-secondary" onClick={onClose}>Cerrar</button>
-        </div>
+    <Dialog open={open} onOpenChange={(v) => !v && onClose?.()}>
+      <DialogContent className="sm:max-w-[640px]">
+        <DialogHeader>
+          <DialogTitle>Nuevo cliente</DialogTitle>
+          <DialogDescription>Completa los datos obligatorios para registrar un cliente.</DialogDescription>
+        </DialogHeader>
 
-        <form onSubmit={submit} style={{ display:'grid', gap:12, marginTop:12 }}>
-          <div className="form-row" style={{ gridTemplateColumns:'1fr 2fr' }}>
-            <label className="form-field">
-              <span>RUC *</span>
-              <input
-                value={form.RUC}
-                onChange={e => setField({ RUC: e.target.value })}
-                placeholder="20123456789"
+        <Form {...form}>
+          <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-4">
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+              <FormField
+                control={form.control}
+                name="RUC"
+                render={({ field }) => (
+                  <FormItem className="md:col-span-1">
+                    <FormLabel>RUC *</FormLabel>
+                    <FormControl>
+                      <Input placeholder="20123456789" {...field} />
+                    </FormControl>
+                    <FormMessage />
+                  </FormItem>
+                )}
               />
-            </label>
-            <label className="form-field">
-              <span>Razón social *</span>
-              <input
-                value={form.razonSocial}
-                onChange={e => setField({ razonSocial: e.target.value })}
-                placeholder="ACME S.A.C."
-              />
-            </label>
-          </div>
 
-          <div className="form-row" style={{ gridTemplateColumns:'1fr 1fr' }}>
-            <label className="form-field">
-              <span>Email</span>
-              <input
-                type="email"
-                value={form.email}
-                onChange={e => setField({ email: e.target.value })}
-                placeholder="cliente@empresa.com"
+              <FormField
+                control={form.control}
+                name="razonSocial"
+                render={({ field }) => (
+                  <FormItem className="md:col-span-2">
+                    <FormLabel>Razón social *</FormLabel>
+                    <FormControl>
+                      <Input placeholder="ACME S.A.C." {...field} />
+                    </FormControl>
+                    <FormMessage />
+                  </FormItem>
+                )}
               />
-            </label>
-            <label className="form-field">
-              <span>Teléfono</span>
-              <input
-                value={form.phone}
-                onChange={e => setField({ phone: e.target.value })}
-                placeholder="+51 999 999 999"
-              />
-            </label>
-          </div>
+            </div>
 
-          <label className="form-field">
-            <span>Dirección</span>
-            <input
-              value={form.address}
-              onChange={e => setField({ address: e.target.value })}
-              placeholder="Av. Siempre Viva 742"
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+              <FormField
+                control={form.control}
+                name="email"
+                render={({ field }) => (
+                  <FormItem>
+                    <FormLabel>Email</FormLabel>
+                    <FormControl>
+                      <Input type="email" placeholder="cliente@empresa.com" {...field} />
+                    </FormControl>
+                    <FormMessage />
+                  </FormItem>
+                )}
+              />
+
+              <FormField
+                control={form.control}
+                name="phone"
+                render={({ field }) => (
+                  <FormItem>
+                    <FormLabel>Teléfono</FormLabel>
+                    <FormControl>
+                      <Input placeholder="+51 999 999 999" {...field} />
+                    </FormControl>
+                    <FormMessage />
+                  </FormItem>
+                )}
+              />
+            </div>
+
+            <FormField
+              control={form.control}
+              name="address"
+              render={({ field }) => (
+                <FormItem>
+                  <FormLabel>Dirección</FormLabel>
+                  <FormControl>
+                    <Input placeholder="Av. Siempre Viva 742" {...field} />
+                  </FormControl>
+                  <FormMessage />
+                </FormItem>
+              )}
             />
-          </label>
 
-          <label className="form-field" style={{ display:'flex', alignItems:'center', gap:8 }}>
-            <input
-              type="checkbox"
-              checked={form.activo}
-              onChange={e => setField({ activo: e.target.checked })}
-              style={{ width:18, height:18 }}
+            <FormField
+              control={form.control}
+              name="activo"
+              render={({ field }) => (
+                <FormItem className="flex flex-row items-center gap-2 space-y-0">
+                  <FormControl>
+                    <Checkbox
+                      checked={field.value}
+                      onCheckedChange={(v) => field.onChange(!!v)}
+                      id="activo"
+                    />
+                  </FormControl>
+                  <Label htmlFor="activo">Activo</Label>
+                </FormItem>
+              )}
             />
-            <span>Activo</span>
-          </label>
 
-          {/* Mensaje de error general solo al enviar */}
-          {apiError && <div className="error">{apiError}</div>}
-
-          <div style={{ display:'flex', gap:8 }}>
-            <div style={{ flex:1 }} />
-            <button type="button" className="btn-secondary" onClick={onClose}>Cancelar</button>
-            <button className="btn" disabled={!canSubmit}>
-              {saving ? 'Guardando…' : 'Registrar'}
-            </button>
-          </div>
-        </form>
-
-        {/* Sugerencias si quisieras mostrar qué falló sin “pintar” inputs */}
-        {(Object.keys(errors).length > 0 && !apiError) && (
-          <div className="muted" style={{ marginTop:8 }}>
-            Faltan datos: {Object.values(errors).join(' · ')}
-          </div>
-        )}
-      </div>
-    </div>
+            <DialogFooter className="gap-2">
+              <Button type="button" variant="secondary" onClick={onClose}>Cancelar</Button>
+              <Button type="submit" disabled={form.formState.isSubmitting}>
+                {form.formState.isSubmitting ? "Guardando…" : "Registrar"}
+              </Button>
+            </DialogFooter>
+          </form>
+        </Form>
+      </DialogContent>
+    </Dialog>
   )
 }

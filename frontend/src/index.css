@@ -1,19 +1,33 @@
 /* ===========================
    Diseño moderno ― variables
    =========================== */
+@import "tw-animate-css";
+@import "tailwindcss";
+
+
+@custom-variant dark (&:is(.dark *));
 
 /* Claro por defecto */
 :root{
-  --bg: #f8fafc;           /* <- claro (slate-50) */
-  --surface: #ffffff;      
-  --text: #0f172a;         /* slate-900 */
-  --muted: #64748b;
+  /* Hacemos alias para que tu sistema y el de shadcn apunten a lo mismo */
+  --background: oklch(1 0 0);
+  --foreground: oklch(0.145 0 0);
 
-  --border: #e5e7eb;
-  --ring: #6366f1;
+  /* tokens “tuyos” alias de los oficiales */
+  --bg: var(--background);
+  --text: var(--foreground);
+
+  --surface: var(--card);
+  --muted: oklch(0.97 0 0);
+  --muted-foreground: oklch(0.556 0 0);
+
+  --border: oklch(0.922 0 0);
+  --ring: oklch(0.708 0 0);
   --shadow: 0 10px 30px rgba(2,6,23,.06);
 
-  --primary: #4f46e5;
+  /* Botón primario oscuro en claro */
+  --primary: oklch(0.205 0 0);
+  --primary-foreground: oklch(0.985 0 0);
   --primary-600: #4f46e5;
   --primary-700: #4338ca;
 
@@ -25,20 +39,57 @@
   --danger:  #ef4444;
 
   --grad-header: linear-gradient(90deg, #6d28d9 0%, #4f46e5 60%, #2563eb 100%);
+
+  /* shadcn tokens */
+  --card: oklch(1 0 0);
+  --card-foreground: oklch(0.145 0 0);
+  --popover: oklch(1 0 0);
+  --popover-foreground: oklch(0.145 0 0);
+  --secondary: oklch(0.97 0 0);
+  --secondary-foreground: oklch(0.205 0 0);
+  --accent: oklch(0.97 0 0);
+  --accent-foreground: oklch(0.205 0 0);
+  --destructive: oklch(0.577 0.245 27.325);
+  --input: oklch(0.922 0 0);
+
+  /* charts */
+  --chart-1: oklch(0.646 0.222 41.116);
+  --chart-2: oklch(0.6 0.118 184.704);
+  --chart-3: oklch(0.398 0.07 227.392);
+  --chart-4: oklch(0.828 0.189 84.429);
+  --chart-5: oklch(0.769 0.188 70.08);
+
+  /* sidebar */
+  --sidebar: oklch(0.985 0 0);
+  --sidebar-foreground: oklch(0.145 0 0);
+  --sidebar-primary: oklch(0.205 0 0);
+  --sidebar-primary-foreground: oklch(0.985 0 0);
+  --sidebar-accent: oklch(0.97 0 0);
+  --sidebar-accent-foreground: oklch(0.205 0 0);
+  --sidebar-border: oklch(0.922 0 0);
+  --sidebar-ring: oklch(0.708 0 0);
 }
 
 /* Oscuro */
 .dark{
-  --bg: #0b0d12;
-  --surface: #141823;
-  --text: #e5e7eb;
-  --muted: #94a3b8;
+  /* shadcn tokens */
+  --background: oklch(0.145 0 0);
+  --foreground: oklch(0.985 0 0);
+  /* alias para mantener coherencia con tu CSS existente */
+  --bg: var(--background);
+  --text: var(--foreground);
 
-  --border: #232835;
-  --ring: #6366f1;
+  --surface: var(--card);
+  --muted: oklch(0.269 0 0);
+  --muted-foreground: oklch(0.708 0 0);
+
+  --border: oklch(1 0 0 / 10%);
+  --ring: oklch(0.556 0 0);
   --shadow: 0 8px 28px rgba(0,0,0,.35);
 
-  --primary: #6366f1;
+  /* Botón primario claro en oscuro */
+  --primary: oklch(0.922 0 0);
+  --primary-foreground: oklch(0.205 0 0);
   --primary-600: #5458ef;
   --primary-700: #4f46e5;
 
@@ -50,6 +101,32 @@
   --danger:  #f87171;
 
   --grad-header: linear-gradient(90deg, #6d28d9 0%, #4f46e5 60%, #2563eb 100%);
+
+  --card: oklch(0.205 0 0);
+  --card-foreground: oklch(0.985 0 0);
+  --popover: oklch(0.205 0 0);
+  --popover-foreground: oklch(0.985 0 0);
+  --secondary: oklch(0.269 0 0);
+  --secondary-foreground: oklch(0.985 0 0);
+  --accent: oklch(0.269 0 0);
+  --accent-foreground: oklch(0.985 0 0);
+  --destructive: oklch(0.704 0.191 22.216);
+  --input: oklch(1 0 0 / 15%);
+
+  --chart-1: oklch(0.488 0.243 264.376);
+  --chart-2: oklch(0.696 0.17 162.48);
+  --chart-3: oklch(0.769 0.188 70.08);
+  --chart-4: oklch(0.627 0.265 303.9);
+  --chart-5: oklch(0.645 0.246 16.439);
+
+  --sidebar: oklch(0.205 0 0);
+  --sidebar-foreground: oklch(0.985 0 0);
+  --sidebar-primary: oklch(0.488 0.243 264.376);
+  --sidebar-primary-foreground: oklch(0.985 0 0);
+  --sidebar-accent: oklch(0.269 0 0);
+  --sidebar-accent-foreground: oklch(0.985 0 0);
+  --sidebar-border: oklch(1 0 0 / 10%);
+  --sidebar-ring: oklch(0.556 0 0);
 }
 
 /* ===========================
@@ -60,8 +137,7 @@ html, body, #root{ height:100%; }
 html{ font-size:16px; }
 body{
   margin:0;
-  background: var(--bg);
-  color: var(--text);
+  /* el color y fondo los aplicamos con @layer base usando tokens shadcn */
   font-family: ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Inter, "Helvetica Neue", Arial, "Noto Sans", "Apple Color Emoji","Segoe UI Emoji";
   line-height:1.6;
   -webkit-font-smoothing: antialiased;
@@ -72,7 +148,6 @@ img{ max-width:100%; display:block; }
 a{ color:inherit; text-decoration:none; }
 button{ font:inherit; }
 
-/* Animaciones: respetar usuarios con motion reducido */
 @media (prefers-reduced-motion: reduce){
   *{ transition:none !important; animation:none !important; }
 }
@@ -83,7 +158,6 @@ button{ font:inherit; }
 .page{ min-height:100%; display:flex; flex-direction:column; }
 .page-center{ min-height:100%; display:flex; align-items:center; justify-content:center; padding:24px; }
 
-/* Encabezado (si lo usas) */
 .app-header{
   background: var(--grad-header);
   color: #fff;
@@ -113,7 +187,7 @@ button{ font:inherit; }
   padding:14px 16px;
   box-shadow: var(--shadow);
 }
-.stat__label{ font-size:.85rem; color:var(--muted); }
+.stat__label{ font-size:.85rem; color: var(--muted-foreground); }
 .stat__value{ font-weight:800; font-size:1.25rem; }
 
 /* ===========================
@@ -142,12 +216,10 @@ button{ font:inherit; }
   font-size: .75rem;
   border-radius: 999px;
   border:1px solid var(--border);
-  color: var(--muted);
+  color: var(--muted-foreground);
   background: transparent;
   font-weight: 600;
 }
-
-/* Usa las variables globales y color-mix para el fondo, así se adapta a ambos temas */
 .badge--success{
   color: var(--success);
   background: color-mix(in oklab, var(--success) 18%, transparent);
@@ -168,17 +240,21 @@ button{ font:inherit; }
   background: color-mix(in oklab, #000 70%, transparent);
   border-color: color-mix(in oklab, #000 80%, var(--border));
 }
-
-/* Ajustes sutiles para tema oscuro (mejor contraste de texto) */
 .dark .badge--success{ color: color-mix(in oklab, var(--success) 80%, #fff); }
 .dark .badge--warning{ color: color-mix(in oklab, var(--warning) 80%, #fff); }
 .dark .badge--danger{  color: color-mix(in oklab, var(--danger) 80%,  #fff); }
 
 /* ===========================
-   Formularios
+   Formularios (LEGACY scope)
    =========================== */
+/* ⚠️ Importante: NO estilos globales para input/select/textarea.
+   Solo aplica a bloques dentro de .legacy para no pisar shadcn. */
+
 label{ display:block; margin-bottom:10px; font-size:.92rem; }
-input, select, textarea{
+
+.legacy input,
+.legacy select,
+.legacy textarea{
   width:100%;
   height: 44px;
   padding: 10px 12px;
@@ -190,26 +266,16 @@ input, select, textarea{
   transition: border-color .2s ease, box-shadow .2s ease, background .2s ease;
   box-shadow: 0 0 0 0 rgba(0,0,0,0);
 }
-textarea{ height:auto; min-height:120px; resize:vertical; }
-input:focus, select:focus, textarea:focus{
+.legacy textarea{ height:auto; min-height:120px; resize:vertical; }
+.legacy input:focus,
+.legacy select:focus,
+.legacy textarea:focus{
   border-color: var(--ring);
   box-shadow: 0 0 0 3px color-mix(in oklab, var(--ring) 25%, transparent);
 }
 
-/* Filas de formulario “entregas” */
-.form-row{
-  display:grid;
-  grid-template-columns: 2fr 1fr 2fr auto;
-  gap: 12px;
-  align-items:end;
-  margin-top: 10px;
-}
-.form-field{ display:grid; gap:6px; }
-.form-field > span{ font-size:.85rem; color:var(--muted); }
-.form-actions{ display:flex; align-items:end; }
-
 /* ===========================
-   Botones
+   Botones (legacy helpers)
    =========================== */
 .btn{
   display:inline-flex; align-items:center; justify-content:center; gap:8px;
@@ -217,7 +283,7 @@ input:focus, select:focus, textarea:focus{
   border-radius: 12px;
   border:1px solid transparent;
   background: var(--primary);
-  color: #fff;
+  color: var(--primary-foreground);
   font-weight: 700;
   letter-spacing:.2px;
   cursor: pointer;
@@ -240,13 +306,11 @@ input:focus, select:focus, textarea:focus{
 }
 .btn-secondary:hover{ background: rgba(148,163,184,.12); }
 
-.btn-ghost{
-  background: transparent; border:1px solid transparent; color: var(--text);
-}
-.btn-danger{ background: var(--danger); }
+.btn-ghost{ background: transparent; border:1px solid transparent; color: var(--text); }
+.btn-danger{ background: var(--danger); color: #fff; }
 
 /* ===========================
-   Tablas
+   Tablas (legacy)
    =========================== */
 .table{ display:grid; gap:8px; }
 .table__head,
@@ -270,10 +334,10 @@ input:focus, select:focus, textarea:focus{
 .table__row:hover{ border-color: color-mix(in oklab, var(--ring) 40%, var(--border)); }
 
 /* ===========================
-   Progreso
+   Progreso (legacy)
    =========================== */
 .progress{ display:grid; gap:8px; }
-.progress__label{ font-size:.9rem; color:var(--muted); }
+.progress__label{ font-size:.9rem; color: var(--muted-foreground); }
 .progress__bar{
   height: 12px;
   background: color-mix(in oklab, var(--surface) 70%, transparent);
@@ -292,7 +356,7 @@ input:focus, select:focus, textarea:focus{
    Estados de texto
    =========================== */
 .error{ color: var(--danger); margin: 8px 0 12px; font-size:.92rem; }
-.muted{ color: var(--muted); font-size:.92rem; }
+.muted{ color: var(--muted-foreground); } /* <- FIX clave */
 
 /* ===========================
    Scrollbar “sutil”
@@ -313,34 +377,22 @@ input:focus, select:focus, textarea:focus{
    =========================== */
 .center{ display:grid; place-items:center; }
 .spacer{ height: 16px; }
-.hidden{ display:none !important; }
-
 /* Shell de la app: sidebar + contenido */
-
-/* Sidebar fijo con su propio scroll */
 .sidebar{
   position: sticky;
   top: 0;
   align-self: start;
-  /* sin height 100svh, sin overflow: así NO muestra scroll interno */
   padding: 16px;
   border-right: 1px solid var(--border);
   background: var(--surface);
 }
-
-/* Contenido principal scrollea de forma natural */
 .content{
   min-height: 100%;
   padding: 24px;
 }
 
-/* Si tienes modo colapsado, puedes reducir el ancho */
-.sidebar--collapsed{
-  width: 76px;
-  grid-column: 1 / span 1;
-}
+.sidebar--collapsed{ width: 76px; grid-column: 1 / span 1; }
 
-/* ============== App shell: sidebar + contenido ============== */
 .app-shell{
   --sidebar-w: 260px;
   display: grid;
@@ -349,17 +401,9 @@ input:focus, select:focus, textarea:focus{
 }
 .app-shell.is-collapsed{ --sidebar-w: 76px; }
 
+.sidebar { scrollbar-width: none; }
+.sidebar::-webkit-scrollbar { width: 0; height: 0; }
 
-
-.content{
-  min-height: 100%;
-  padding: 24px;
-}
-.sidebar {
-  scrollbar-width: none;                /* Firefox */
-}
-.sidebar::-webkit-scrollbar { width: 0; height: 0; } 
-/* Botón hamburguesa en el header del contenido */
 .topbar{
   display: flex; align-items: center; justify-content: space-between;
   gap: 12px;
@@ -374,48 +418,21 @@ input:focus, select:focus, textarea:focus{
   cursor: pointer;
 }
 
-/* Sidebar: cuando está colapsado solo íconos, oculta textos largos */
 .sidebar .hide-when-collapsed{ display: block; }
 .app-shell.is-collapsed .sidebar .hide-when-collapsed{ display: none; }
 .sidebar .only-when-collapsed{ display: none; }
 .app-shell.is-collapsed .sidebar .only-when-collapsed{ display: inline-block; }
 
-/* Que las tarjetas aprovechen todo el ancho disponible */
 .card{ max-width: none; }
-.container {
-  max-width: 1200px;
-  margin: 0 auto;
-}
+.container { max-width: 1200px; margin: 0 auto; }
 
-/* ===== App shell con sidebar colapsable ===== */
-.app-shell{
-  --sidebar-w: 260px;
-  display: grid;
-  grid-template-columns: var(--sidebar-w) 1fr;
-  min-height: 100vh;
-}
-
-/* Sidebar usa el ancho de la variable */
-.sidebar{ width: var(--sidebar-w); }
-
-/* Cuando está colapsado, reduce ancho */
-.app-shell.is-collapsed{ --sidebar-w: 76px; }
-
-/* Helpers de colapso (¡con !important para asegurar!) */
-.sidebar .hide-when-collapsed{ display: block; }
-.app-shell.is-collapsed .sidebar .hide-when-collapsed{ display: none !important; }
-
-.sidebar .only-when-collapsed{ display: none; }
-.app-shell.is-collapsed .sidebar .only-when-collapsed{ display: inline-block !important; }
-/* Modal básico */
+/* Modal básico (legacy) */
 .modal-backdrop{
   position: fixed; inset: 0;
   background: rgba(0,0,0,.45);
   display: grid; place-items: center;
   z-index: 50;
 }
-
-/* centrar modales */
 .modal.modal--center {
   position: fixed;
   inset: 0;
@@ -433,117 +450,106 @@ input:focus, select:focus, textarea:focus{
   box-shadow: 0 10px 40px rgba(0,0,0,.2);
   padding: 16px;
 }
-/* Overlay y panel base para modales */
-.modal {
-  position: fixed;
-  inset: 0;
-  z-index: 9999;
-}
 
-.modal--center {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-}
-
-.modal__overlay {
-  position: absolute;
-  inset: 0;
-  background: rgba(0,0,0,0.45);
-  backdrop-filter: blur(2px);
-}
-
+/* Modal overlay + panel (legacy) */
+.modal { position: fixed; inset: 0; z-index: 9999; }
+.modal--center { display: flex; align-items: center; justify-content: center; }
+.modal__overlay { position: absolute; inset: 0; background: rgba(0,0,0,0.45); backdrop-filter: blur(2px); }
 .modal__panel {
-  position: relative;
-  z-index: 1;
-  width: min(720px, 92vw);
-  max-height: 90vh;
-  overflow: auto;
-  background: #fff;            /* << sólido */
-  color: #111;
-  border-radius: 16px;
-  box-shadow: 0 20px 50px rgba(0,0,0,0.25);
+  position: relative; z-index: 1;
+  width: min(720px, 92vw); max-height: 90vh; overflow: auto;
+  background: #fff; color: #111;
+  border-radius: 16px; box-shadow: 0 20px 50px rgba(0,0,0,0.25);
   padding: 16px;
 }
+.modal__head { display:flex; align-items:center; justify-content:space-between; gap:8px; margin-bottom:10px; }
+.modal__title { margin:0; font-size:1.05rem; }
+.modal__actions { display:flex; gap:8px; justify-content:flex-end; margin-top:8px; }
 
-.modal__head {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 8px;
-  margin-bottom: 10px;
-}
+.icon-btn { border: 0; background: transparent; font-size: 18px; line-height: 1; cursor: pointer; padding: 6px 8px; border-radius: 8px; }
+.icon-btn:hover { background: rgba(0,0,0,0.06); }
 
-.modal__title {
-  margin: 0;
-  font-size: 1.05rem;
-}
-
-.modal__actions {
-  display: flex;
-  gap: 8px;
-  justify-content: flex-end;
-  margin-top: 8px;
-}
-
-/* Botón de cerrar simple */
-.icon-btn {
-  border: 0;
-  background: transparent;
-  font-size: 18px;
-  line-height: 1;
-  cursor: pointer;
-  padding: 6px 8px;
-  border-radius: 8px;
-}
-.icon-btn:hover {
-  background: rgba(0,0,0,0.06);
-}
-/* Switch bonito (clase pretty-switch) */
-.pretty-switch {
-  position: relative;
-  user-select: none;
-}
-.pretty-switch input[type="checkbox"] {
-  position: absolute;
-  opacity: 0;
-  width: 0;
-  height: 0;
-}
+.pretty-switch { position: relative; user-select: none; }
+.pretty-switch input[type="checkbox"] { position: absolute; opacity: 0; width: 0; height: 0; }
 .pretty-switch__slider {
-  width: 42px;
-  height: 24px;
-  border-radius: 9999px;
-  border: 1px solid var(--card);
-  background: var(--card);
-  display: inline-block;
-  margin-right: 8px;
-  position: relative;
-  vertical-align: middle;
+  width: 42px; height: 24px; border-radius: 9999px; border: 1px solid var(--card); background: var(--card);
+  display: inline-block; margin-right: 8px; position: relative; vertical-align: middle;
   transition: background .15s ease, border-color .15s ease;
 }
 .pretty-switch__slider::after {
-  content: "";
-  position: absolute;
-  top: 3px; left: 3px;
-  width: 18px; height: 18px;
-  border-radius: 50%;
-  background: var(--bg);
-  transition: left .15s ease;
-  box-shadow: 0 1px 3px rgba(0,0,0,.15);
+  content: ""; position: absolute; top: 3px; left: 3px; width: 18px; height: 18px; border-radius: 50%;
+  background: var(--bg); transition: left .15s ease; box-shadow: 0 1px 3px rgba(0,0,0,.15);
 }
-/* checked */
 .pretty-switch input[type="checkbox"]:checked + .pretty-switch__slider {
-  background: #16a34a; /* verde */
-  border-color: #16a34a;
+  background: #16a34a; border-color: #16a34a;
 }
-.pretty-switch input[type="checkbox"]:checked + .pretty-switch__slider::after {
-  left: 21px;
-}
+.pretty-switch input[type="checkbox"]:checked + .pretty-switch__slider::after { left: 21px; }
 
-/* Botón de cierre */
+/* Close icon hover (legacy) */
 .icon-btn--close:hover {
   border-color: #fca5a5 !important;
   background: rgba(220, 38, 38, .08) !important;
   color: #b91c1c !important;
 }
+
+/* Tokens Tailwind (shadcn) */
+@theme inline {
+  --radius-sm: calc(var(--radius, 10px) - 4px);
+  --radius-md: calc(var(--radius, 10px) - 2px);
+  --radius-lg: var(--radius, 10px);
+  --radius-xl: calc(var(--radius, 10px) + 4px);
+
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --color-card: var(--card);
+  --color-card-foreground: var(--card-foreground);
+  --color-popover: var(--popover);
+  --color-popover-foreground: var(--popover-foreground);
+  --color-primary: var(--primary);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-secondary: var(--secondary);
+  --color-secondary-foreground: var(--secondary-foreground);
+  --color-muted: var(--muted);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-accent: var(--accent);
+  --color-accent-foreground: var(--accent-foreground);
+  --color-destructive: var(--destructive);
+  --color-border: var(--border);
+  --color-input: var(--input);
+  --color-ring: var(--ring);
+  --color-chart-1: var(--chart-1);
+  --color-chart-2: var(--chart-2);
+  --color-chart-3: var(--chart-3);
+  --color-chart-4: var(--chart-4);
+  --color-chart-5: var(--chart-5);
+  --color-sidebar: var(--sidebar);
+  --color-sidebar-foreground: var(--sidebar-foreground);
+  --color-sidebar-primary: var(--sidebar-primary);
+  --color-sidebar-primary-foreground: var(--sidebar-primary-foreground);
+  --color-sidebar-accent: var(--sidebar-accent);
+  --color-sidebar-accent-foreground: var(--sidebar-accent-foreground);
+  --color-sidebar-border: var(--sidebar-border);
+  --color-sidebar-ring: var(--sidebar-ring);
+}
+
+/* Aplica tokens al body y border */
+@layer base {
+  * { @apply border-border outline-ring/50; }
+  body { @apply bg-background text-foreground; }
+}
+
+/* ===========================
+   Resets para buscador / iconos
+   =========================== */
+/* Quita adornos nativos de search */
+input[type="search"]::-webkit-search-decoration,
+input[type="search"]::-webkit-search-cancel-button,
+input[type="search"]::-webkit-search-results-button,
+input[type="search"]::-webkit-search-results-decoration { display: none; }
+input::-ms-clear, input::-ms-reveal { display: none; }
+
+/* Evita bullets/markers en wrappers relativos (para inputs con iconos) */
+.relative ::marker { content: none; }
+.relative { list-style: none; }
+/* Normaliza SVG dentro de wrappers relativos */
+.relative svg { display: block; }

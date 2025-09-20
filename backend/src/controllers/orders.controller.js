@@ -166,18 +166,31 @@ export async function searchOrdersCtrl(req, res) {
     const limit  = Math.min(Number(req.query.limit) || 50, 200)
     const offset = Math.max(Number(req.query.offset) || 0, 0)
 
-    // state puede venir como CSV: "PENDIENTE,EN_PROCESO"
+    // CSV de estados: "PENDIENTE,EN_PROCESO,ENTREGADO,CANCELADO"
     const csv = (req.query.state || '').trim()
     let states = []
     if (csv) {
       states = csv.split(',').map(s => s.trim()).filter(Boolean)
     }
 
-    // Validar estados permitidos (opcional pero útil):
+    // Validación de estados permitidos (mantengo tu lógica)
     const allowed = new Set(['PENDIENTE','EN_PROCESO','ENTREGADO','CANCELADO'])
     states = states.filter(s => allowed.has(s))
 
-    const data = await listOrdersByStates({ q, states, limit, offset })
+    // ⬇️ NUEVO: tomar rango de fechas
+    const from = (req.query.from || '').trim() || undefined   // "YYYY-MM-DD"
+    const to   = (req.query.to   || '').trim() || undefined   // "YYYY-MM-DD"
+
+    // ⬇️ CAMBIO CLAVE: usar listOrdersWithStates (soporta from/to y devuelve {items,total})
+    const data = await listOrdersWithStates({
+      q,
+      states: states.length ? states : undefined,
+      from,   // el model aplica 00:00:00
+      to,     // el model aplica 23:59:59
+      limit,
+      offset,
+    })
+
     return res.json(data)
   } catch (e) {
     console.error(e)

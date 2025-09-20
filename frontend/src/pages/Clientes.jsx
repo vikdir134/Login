@@ -1,142 +1,220 @@
-import { useEffect, useMemo, useState } from 'react'
-import { Link } from 'react-router-dom'
-import { fetchCustomers } from '../api/customers'
-import { hasRole, getUserFromToken } from '../utils/auth'
-import AddCustomerModal from '../components/AddCustomerModal'
+import { useEffect, useMemo, useState } from "react"
+import { Link } from "react-router-dom"
+import { toast } from "sonner"
+import { Plus, Search } from "lucide-react"
+
+import { fetchCustomers } from "../api/customers"
+import { hasRole, getUserFromToken } from "../utils/auth"
+import AddCustomerModal from "../components/AddCustomerModal"
+
+import {
+  Card,
+  CardHeader,
+  CardTitle,
+  CardContent,
+} from "@/components/ui/card"
+import { Button } from "@/components/ui/button"
+import { Input } from "@/components/ui/input"
+import {
+  Table,
+  TableHeader,
+  TableRow,
+  TableHead,
+  TableBody,
+  TableCell,
+} from "@/components/ui/table"
+import { Badge } from "@/components/ui/badge"
+import {
+  Pagination,
+  PaginationContent,
+  PaginationItem,
+  PaginationPrevious,
+  PaginationNext,
+  PaginationLink,
+} from "@/components/ui/pagination"
+import { Skeleton } from "@/components/ui/skeleton"
 
 export default function Clientes() {
   const me = getUserFromToken()
-  const puedeCrear = hasRole(me, 'JEFE') || hasRole(me, 'ADMINISTRADOR')
+  const puedeCrear = hasRole(me, "JEFE") || hasRole(me, "ADMINISTRADOR")
 
-  const [q, setQ] = useState('')
+  const [q, setQ] = useState("")
   const [rows, setRows] = useState([])
   const [total, setTotal] = useState(0)
   const [loading, setLoading] = useState(true)
-  const [msg, setMsg] = useState('')
-
   const [openNew, setOpenNew] = useState(false)
 
   // Paginación
   const [page, setPage] = useState(0)
   const pageSize = 30
 
-  const canPrev = page > 0
-  const canNext = (page + 1) * pageSize < total
   const totalPages = useMemo(
     () => Math.max(1, Math.ceil((total || 0) / pageSize)),
     [total]
   )
+  const canPrev = page > 0
+  const canNext = page + 1 < totalPages
 
   const load = async () => {
-    setLoading(true); setMsg('')
+    setLoading(true)
     try {
       const data = await fetchCustomers({
         q,
         limit: pageSize,
-        offset: page * pageSize
+        offset: page * pageSize,
       })
 
-      // Soporta dos formatos de respuesta:
-      // 1) Array simple
-      // 2) { items, total }
       if (Array.isArray(data)) {
         setRows(data)
-        setTotal(data.length < pageSize && page === 0 ? data.length : (page + 1) * pageSize + (data.length === pageSize ? pageSize : 0)) // fallback
+        // Fallback de total si el API no lo envía
+        const fallback =
+          data.length < pageSize && page === 0
+            ? data.length
+            : (page + 1) * pageSize + (data.length === pageSize ? pageSize : 0)
+        setTotal(fallback)
       } else {
         setRows(Array.isArray(data?.items) ? data.items : [])
         setTotal(Number(data?.total || 0))
       }
-    } catch {
-      setMsg('Error cargando clientes')
-      setRows([]); setTotal(0)
+    } catch (e) {
+      setRows([])
+      setTotal(0)
+      toast.error("Error cargando clientes", {
+        description: "Revisa tu conexión o intenta nuevamente.",
+      })
     } finally {
       setLoading(false)
     }
   }
 
   // Buscar y paginar
-  useEffect(() => { setPage(0) }, [q])           // reset de página al cambiar búsqueda
-  useEffect(() => { load() }, [q, page])         // carga por q y page
+  useEffect(() => {
+    setPage(0)
+  }, [q])
+  useEffect(() => {
+    load()
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [q, page])
+
+  // Estado con colores (verde/rojo)
+  const EstadoBadge = ({ activo }) => (
+    <Badge
+      variant="outline"
+      className={
+        activo
+          ? "bg-green-500/10 text-green-700 dark:text-green-400 border-green-600/30"
+          : "bg-red-500/10 text-red-700 dark:text-red-400 border-red-600/30"
+      }
+    >
+      {activo ? "Activo" : "Inactivo"}
+    </Badge>
+  )
+
+  const handlePrev = () => canPrev && setPage((p) => Math.max(0, p - 1))
+  const handleNext = () => canNext && setPage((p) => p + 1)
 
   return (
-    <section className="card">
-      <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center' }}>
-        <h3 style={{ margin:0 }}>Clientes</h3>
+    <Card className="w-full">
+      <CardHeader className="flex flex-row items-center justify-between space-y-0">
+        <CardTitle className="text-xl">Clientes</CardTitle>
         {puedeCrear && (
-          <button className="btn" onClick={()=>setOpenNew(true)}>+ Nuevo</button>
+          <Button onClick={() => setOpenNew(true)}>
+            <Plus className="mr-2 h-4 w-4" /> Nuevo
+          </Button>
         )}
-      </div>
+      </CardHeader>
 
-      <div style={{ margin:'12px 0' }}>
-        <input
-          placeholder="Buscar por RUC o Razón social…"
-          value={q}
-          onChange={e=>setQ(e.target.value)}
-          style={{ width:'100%' }}
-        />
-      </div>
-
-      {loading ? 'Cargando…' : (
-        <div className="table">
-          <div className="table__head" style={{ gridTemplateColumns:'1fr 2fr 1fr auto' }}>
-            <div>RUC</div>
-            <div>Razón social</div>
-            <div>Estado</div>
-            <div>Acciones</div>
-          </div>
-          {rows.map(r => (
-            <div className="table__row" key={r.id} style={{ gridTemplateColumns:'1fr 2fr 1fr auto' }}>
-              <div>{r.RUC}</div>
-              <div>{r.razonSocial}</div>
-              <div>
-                <span
-                  style={{
-                    display: 'inline-block',
-                    padding: '4px 10px',
-                    borderRadius: '10px',
-                    border: `2px solid ${r.activo ? 'var(--success)' : 'var(--danger)'}`,
-                    color: r.activo ? 'var(--success)' : 'var(--danger)',
-                    fontWeight: 700
-                  }}
-                >
-                  {r.activo ? 'Activo' : 'Inactivo'}
-                </span>
-              </div>
-              <div><Link className="btn-secondary" to={`/app/clientes/${r.id}`}>Ver</Link></div>
-            </div>
-          ))}
-          {rows.length === 0 && <div className="muted">Sin resultados</div>}
+      <CardContent className="space-y-4">
+        {/* Buscador */}
+        <div className="relative list-none">
+          <Search className="pointer-events-none inline-block absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 opacity-60 text-muted-foreground" />
+          <Input
+            type="text"
+            className="!pl-9 appearance-none"
+            placeholder="Buscar por RUC o Razón social…"
+            value={q}
+            onChange={(e) => setQ(e.target.value)}
+            aria-label="Buscar clientes"
+          />
         </div>
-      )}
 
-      {/* Paginación */}
-      <div style={{ display:'flex', gap:8, marginTop:10, alignItems:'center' }}>
-        <button
-          className="btn-secondary"
-          disabled={!canPrev}
-          onClick={() => setPage(p => Math.max(0, p - 1))}
-        >
-          Anterior
-        </button>
 
-        <div className="muted">Página {page + 1} de {totalPages}</div>
+        {/* Tabla */}
+        {loading ? (
+          <div className="space-y-2">
+            <Skeleton className="h-9 w-full" />
+            <Skeleton className="h-9 w-full" />
+            <Skeleton className="h-9 w-full" />
+          </div>
+        ) : rows.length === 0 ? (
+          <div className="text-sm text-muted-foreground">Sin resultados</div>
+        ) : (
+          <Table>
+            <TableHeader>
+              <TableRow>
+                <TableHead>RUC</TableHead>
+                <TableHead>Razón social</TableHead>
+                <TableHead className="w-[120px]">Estado</TableHead>
+                <TableHead className="text-right w-[120px]">Acciones</TableHead>
+              </TableRow>
+            </TableHeader>
+            <TableBody>
+              {rows.map((r) => (
+                <TableRow key={r.id}>
+                  <TableCell className="font-mono">{r.RUC}</TableCell>
+                  <TableCell className="font-medium">{r.razonSocial}</TableCell>
+                  <TableCell>
+                    <EstadoBadge activo={!!r.activo} />
+                  </TableCell>
+                  <TableCell className="text-right">
+                    <Button variant="secondary" size="sm" asChild>
+                      <Link to={`/app/clientes/${r.id}`}>Ver</Link>
+                    </Button>
+                  </TableCell>
+                </TableRow>
+              ))}
+            </TableBody>
+          </Table>
+        )}
 
-        <button
-          className="btn-secondary"
-          disabled={!canNext}
-          onClick={() => setPage(p => p + 1)}
-        >
-          Siguiente
-        </button>
-      </div>
+        {/* Paginación */}
+        <div className="flex items-center justify-between pt-2">
+          <div className="text-sm text-muted-foreground">
+            Página {page + 1} de {totalPages}
+          </div>
 
-      {msg && <div className="muted" style={{ marginTop:8 }}>{msg}</div>}
+          <Pagination>
+            <PaginationContent>
+              <PaginationItem>
+                <PaginationPrevious onClick={handlePrev} aria-disabled={!canPrev} />
+              </PaginationItem>
 
-      <AddCustomerModal
-        open={openNew}
-        onClose={()=>setOpenNew(false)}
-        onSuccess={load}
-      />
-    </section>
+              {Array.from({ length: totalPages })
+                .slice(Math.max(0, page - 1), Math.min(totalPages, page + 2))
+                .map((_, idx) => {
+                  const p = Math.max(0, page - 1) + idx
+                  return (
+                    <PaginationItem key={p}>
+                      <PaginationLink
+                        isActive={p === page}
+                        onClick={() => setPage(p)}
+                      >
+                        {p + 1}
+                      </PaginationLink>
+                    </PaginationItem>
+                  )
+                })}
+
+              <PaginationItem>
+                <PaginationNext onClick={handleNext} aria-disabled={!canNext} />
+              </PaginationItem>
+            </PaginationContent>
+          </Pagination>
+        </div>
+      </CardContent>
+
+      {/* Dialog/Sheet lo migramos después; por ahora tu modal existente */}
+      <AddCustomerModal open={openNew} onClose={() => setOpenNew(false)} onSuccess={load} />
+    </Card>
   )
 }

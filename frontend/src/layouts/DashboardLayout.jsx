@@ -1,41 +1,41 @@
 // src/layouts/DashboardLayout.jsx
-import { useState } from 'react'
-import { Outlet, useNavigate } from 'react-router-dom'
-import Sidebar from '../components/Sidebar'
+import { Outlet, useNavigate } from "react-router-dom"
+import {
+  SidebarProvider,
+  SidebarInset,
+  SidebarTrigger,
+} from "@/components/ui/sidebar"
+import AppSidebar from "../components/AppSidebar"
+import { Button } from "@/components/ui/button"
 
 export default function DashboardLayout() {
-  const [collapsed, setCollapsed] = useState(false)
   const navigate = useNavigate()
-
   const onLogout = () => {
-    localStorage.removeItem('token')
-    navigate('/login', { replace: true })
+    localStorage.removeItem("token")
+    navigate("/login")
   }
 
   return (
-    <div className={`app-shell ${collapsed ? 'is-collapsed' : ''}`}>
-      <aside className="sidebar">
-        <Sidebar collapsed={collapsed} onLogout={onLogout} />
-      </aside>
+    <SidebarProvider>
+      {/* Lado izquierdo: el Sidebar shadcn */}
+      <AppSidebar onLogout={onLogout} />
 
-      <main className="content">
-        <div className="topbar">
-          <button
-            type="button"
-            className="icon-btn"
-            title={collapsed ? 'Expandir' : 'Colapsar'}
-            onClick={() => setCollapsed(c => !c)}
-          >
-            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-              <path d="M3 6h18M3 12h18M3 18h18"/>
-            </svg>
-          </button>
-          <div style={{ opacity:.7 }}>Panel</div>
-          <div style={{ flex:1 }} />
-        </div>
+      {/* Lado derecho: contenido */}
+      <SidebarInset>
+        {/* Header superior */}
+        <header className="flex h-14 items-center gap-2 border-b px-4">
+          <SidebarTrigger />
+          <div className="font-medium">Panel</div>
+          <div className="ml-auto" />
+          {/* Acciones extra en header si las necesitas */}
+          {/* <Button variant="secondary" size="sm">Acción</Button> */}
+        </header>
 
-        <Outlet />
-      </main>
-    </div>
+        {/* Contenido central */}
+        <main className="p-4">
+          <Outlet />
+        </main>
+      </SidebarInset>
+    </SidebarProvider>
   )
 }
